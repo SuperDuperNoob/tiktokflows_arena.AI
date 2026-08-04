@@ -112,6 +112,9 @@ async def get_status():
     # Cookie status
     cookie_status = get_cookie_status()
 
+    # Drive cleanup (minimal: pending deletes + how many were cleaned today)
+    drive_cleanup = get_drive_cleanup_status()
+
     return {
         "posted_today": posted_today,
         "daily_target": target,
@@ -121,6 +124,7 @@ async def get_status():
         "recent_posts": recent_posts,
         "performance": perf,
         "cookie_status": cookie_status,
+        "drive_cleanup": drive_cleanup,
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
 
@@ -516,6 +520,30 @@ def mask_secret(value: str) -> str:
     if not value or len(value) < 8:
         return "***"
     return value[:4] + "..." + value[-4:]
+
+
+def get_drive_cleanup_status() -> dict:
+    """Minimal Drive-cleanup indicator: raws deleted from Drive today + pending.
+
+    'pending' = consumed raws whose Drive copy hasn't been deleted yet (will be
+    retried by sync_out). 'deleted_today' = lines in drive_cleanup.log stamped
+    on today's date (business timezone MYT).
+    """
+    try:
+        import lib as _lib
+        # Pending deletes (consumed but not yet removed from Drive).
+        pending = len(_lib.consumed_pending_cleanup())
+        # Cleaned today from the audit log.
+        today = _lib.local_today().isoformat()
+        deleted_today = 0
+        cl = _lib.drive_cleanup_log()
+        if cl.exists():
+            for line in cl.read_text(encoding="utf-8", errors="ignore").splitlines():
+                if line.startswith(today):
+                    deleted_today += 1
+        return {"pending": pending, "deleted_today": deleted_today}
+    except Exception:
+        return {"pending": 0, "deleted_today": 0}
 
 def get_cookie_status() -> dict:
     session_user = CONFIG.get("tiktok", {}).get("session_username", "myshop")

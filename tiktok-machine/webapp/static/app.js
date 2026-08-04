@@ -95,6 +95,19 @@ async function loadDashboard() {
             cookieStatus.style.color = 'var(--accent-yellow)';
         }
 
+        // Drive cleanup
+        const dc = data.drive_cleanup || {};
+        document.getElementById('stat-drive-cleaned').textContent = dc.deleted_today || 0;
+        const pending = dc.pending || 0;
+        const pendEl = document.getElementById('stat-drive-pending');
+        if (pending > 0) {
+            pendEl.textContent = `${pending} pending delete`;
+            pendEl.style.color = 'var(--accent-yellow)';
+        } else {
+            pendEl.textContent = 'all synced';
+            pendEl.style.color = 'var(--accent-green)';
+        }
+
         // Compact views chart (from /api/analytics)
         renderDashboardChart();
 
