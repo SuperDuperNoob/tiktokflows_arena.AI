@@ -6,7 +6,7 @@
 # key never crashes a run — but set the real values below.
 #
 # Keep this file out of git history if it holds live credentials:
-#   echo "tiktok-machine/config/config.yaml" >> .gitignore
+#   echo "config/config.yaml" >> .gitignore
 # =============================================================================
 
 # --- TikTok account ---------------------------------------------------------
