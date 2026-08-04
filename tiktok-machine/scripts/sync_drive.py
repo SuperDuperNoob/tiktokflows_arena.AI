@@ -86,19 +86,34 @@ class DriveSyncer:
         return True, stock_report
 
     def _rclone_sync(self) -> Tuple[bool, str]:
-        """Execute rclone sync command."""
+        """Execute rclone sync command.
+
+        Uses `rclone copy` (NOT `sync`) — pull new/changed raws only, never
+        delete local files. Already-posted raws are removed from Drive by
+        sync_out.py, so they never come back; deleting locally would risk
+        losing raws that are still waiting on Drive.
+        """
         remote_full = f"{self.rclone_remote}:{self.remote_path}"
 
         cmd = [
-            "rclone", "sync",
+            "rclone", "copy",
             remote_full,
             self.raw_dir,
-            "--verbose",
-            "--stats", "one-line",
-            "--transfers", "4",
-            "--checkers", "8",
-            "--retries", "3",
-            "--low-level-retries", "5",
+            "--transfers", "1",
+            "--checkers", "2",
+            "--buffer-size", "16M",
+            "--retries", "2",
+            "--low-level-retries", "3",
+            # Never pull archives / temp / outputs back down.
+            "--exclude", "processed/**",
+            "--exclude", "failed/**",
+            "--exclude", "posted/**",
+            "--exclude", "tmp/**",
+            "--exclude", "*.lock",
+            "--exclude", "burn_log.jsonl",
+            "--exclude", "deleted.log",
+            "--exclude", "deleted_history.log",
+            "--log-level", "INFO",
         ]
 
         try:

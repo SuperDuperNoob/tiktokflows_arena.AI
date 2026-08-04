@@ -161,6 +161,34 @@ python3 scripts/generate_report.py             # writes logs/daily_report.txt
 python3 scripts/check_burns.py --quarantine    # quality gate (0 bad = exit 0)
 ```
 
+---
+
+## 9. How Drive sync avoids uploading the same video twice
+
+`content/raw/` is fed from Google Drive. The pipeline is careful never to
+re-download or re-upload a clip:
+
+1. **sync in** (`sync_drive.py`) — `rclone copy` pulls **new** raws only, with
+   excludes for `processed/**`, `failed/**`, `posted/**`, `tmp/**` and log
+   files. It never deletes local files.
+2. **burn + post** (`video_processor.py` → `uploader.py`) — after a successful
+   burn the raw source is moved to `content/processed/<Product>/` and its path
+   is appended to `logs/deleted.log`, e.g. `Biocho/foo.mp4`.
+3. **sync out** (`sync_out.py`) — runs right after a successful upload:
+   - copies `success.log` / `failed.log` / `burn_log.jsonl` / reports back to
+     Drive (small files),
+   - copies the `content/processed/` archive up to `Drive/processed/` (backup),
+   - reads `deleted.log` and runs `rclone deletefile` on each **remote** raw
+     (`gdrive:TikTokContent/Biocho/foo.mp4`). Successes go to
+     `logs/deleted_history.log`; failures are kept to retry next run.
+4. Next sync-in sees the posted raw is **gone from Drive**, so it is never
+   pulled back down and never uploaded again.
+
+> If you ever reset the local `content/` folder, the mapping in `products.json`
+> and `product_id.txt` is unaffected — those are source-of-truth files kept in
+> the repo. Only `deleted.log` and `deleted_history.log` track what has already
+> been posted remotely.
+
 When those pass, start the orchestrator:
 
 ```bash
@@ -177,7 +205,8 @@ python3 scripts/orchestrator.py                # or via systemd
 | Sidecars (`.json` / `.pid`) | next to the rendered mp4 |
 | Archived source | `content/processed/<Product>/` |
 | Quarantined broken burns | `content/failed/` |
-| Archived-source log | `logs/deleted.log` |
+| Archived-source log | `logs/deleted.log` (processed, then archived) |
+| Deleted-remote history | `logs/deleted_history.log` |
 | Upload success log | `logs/success.log` |
 | Upload failure log | `logs/failed.log` |
 | Burn quality log | `logs/burn_log.jsonl` |

@@ -125,5 +125,10 @@ def test_ai_layer_unavailable_falls_back_to_regex(monkeypatch):
     engine = ComplianceEngine({"strict_mode": True}, ai_config={})
     assert engine._ai_available() is False
     final, ok, issues = engine.process_caption("harga murah")
-    assert ok is True
-    assert final != "harga murah"  # obfuscated
+    assert ok is True  # no unrepairable claims
+    # soften(rate=0.7) is random, so the output may or may not be obfuscated on
+    # any single run (both terms can be left plain with ~9% probability). What
+    # we must guarantee is it stays compliant, never "needs_rewrite".
+    from caption_policy import scan_caption
+    assert scan_caption(final)["needs_rewrite"] is False
+    assert scan_caption(final)["risk"] in ("low", "medium")

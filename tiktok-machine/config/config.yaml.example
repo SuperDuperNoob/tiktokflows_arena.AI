@@ -132,9 +132,16 @@ analytics:
   rival_handle: "reski.reski700"
 
 # --- Google Drive sync ------------------------------------------------------
+# Anti-duplicate flow (same as tiktokflow_vps):
+#   sync_in (rclone copy)  pulls NEW raws from Drive -> content/raw/
+#   burn                   archives the posted raw locally to content/processed/
+#                          and appends its path to logs/deleted.log
+#   sync_out               copies logs + processed archive back to Drive, then
+#                          rclone deletefile's the posted raw on Drive via
+#                          deleted.log, so it is never re-downloaded/re-uploaded
 google_drive:
   rclone_remote: ""            # e.g. "gdrive:"
-  remote_path: ""              # e.g. "TikTok/products"
+  remote_path: ""              # e.g. "TikTokContent" (folder that holds product dirs)
   products_file: "content/products.json"
 
 # --- Apify competitor scraping ----------------------------------------------

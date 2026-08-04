@@ -506,6 +506,10 @@ footer {
     margin-bottom: 4px;
 }
 
+.chart-wrap.chart-compact {
+    height: 180px;
+}
+
 .chart-hint {
     color: var(--text-secondary);
     font-size: 0.85rem;

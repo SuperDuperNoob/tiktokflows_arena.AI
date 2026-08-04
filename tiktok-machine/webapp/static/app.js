@@ -95,6 +95,9 @@ async function loadDashboard() {
             cookieStatus.style.color = 'var(--accent-yellow)';
         }
 
+        // Compact views chart (from /api/analytics)
+        renderDashboardChart();
+
         // Stock list
         const stockList = document.getElementById('stock-list');
         if (Object.keys(data.stock_counts).length === 0) {
@@ -526,6 +529,45 @@ function chartBase(dark = true) {
             y: { beginAtZero: true, ticks: { color: tickColor }, grid: { color: gridColor } },
         },
     };
+}
+
+async function renderDashboardChart() {
+    try {
+        const ana = await api('GET', '/api/analytics?days=7');
+        const labels = ana.views_by_day.map(r => (r.snap_date || '').slice(5));
+        const net = ana.views_delta_by_day.map(r => r.views || 0);
+        if (!labels.length) {
+            chartEmpty('chart-dashboard-empty');
+            return;
+        }
+        chartClearEmpty('chart-dashboard-empty');
+        makeChart('chart-dashboard-views', {
+            type: 'line',
+            data: {
+                labels,
+                datasets: [{
+                    label: 'Views / day', data: net,
+                    borderColor: '#FFD700',
+                    backgroundColor: 'rgba(255,215,0,0.18)',
+                    fill: true, tension: 0.3,
+                    pointRadius: 2,
+                }],
+            },
+            options: {
+                ...chartBase(),
+                plugins: {
+                    legend: { display: false },
+                    tooltip: { callbacks: { label: c => `${c.parsed.y} views` } },
+                },
+                scales: {
+                    x: { ticks: { color: '#8a90a2', maxTicksLimit: 7 }, grid: { display: false } },
+                    y: { beginAtZero: true, ticks: { color: '#8a90a2' }, grid: { color: 'rgba(255,255,255,0.06)' } },
+                },
+            },
+        });
+    } catch (err) {
+        console.error('Dashboard chart failed:', err);
+    }
 }
 
 function chartEmpty(id) {

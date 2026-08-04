@@ -203,6 +203,13 @@ class Orchestrator:
                 caption = posted[0].get("caption_text", "")
             self.telegram.notify_upload_success(
                 "video", caption, stock_report or {}, posted_today, target)
+            # Sync out: push logs/processed backup up AND delete the posted raw
+            # from Drive so the next sync_in never re-downloads/re-uploads it.
+            try:
+                from sync_out import SyncOut
+                SyncOut(self.config).sync()
+            except Exception as e:
+                logger.warning("sync_out failed (retries next cycle): %s", e)
         else:
             self.telegram.notify_upload_failure(
                 "video", "Upload failed after retries", "", will_retry=True)

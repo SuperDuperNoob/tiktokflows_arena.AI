@@ -153,6 +153,36 @@ The core pipeline is a port of the production tiktokflow_vps v4 scripts:
   per calendar day (MYT). Writes only `growth_report.txt`.
 - **`generate_report.py`** / **`reconcile_metrics.py`** — ported OPS report and
   analytics reconciliation.
+- **`sync_out.py`** — the other half of the Drive sync loop: pushes logs +
+  processed archive back to Drive and deletes already-posted raws remotely via
+  `deleted.log`, so the next sync never re-downloads/re-uploads the same video.
+
+### How Drive sync avoids duplicates (same as tiktokflow_vps)
+
+```
+Google Drive ──sync_in (rclone copy, pull new only)──▶ content/raw/<Product>/
+   │                                                          │ burn
+   │                                                          ▼
+   │                                          content/processed/<Product>/ (archive)
+   │                                              + logs/deleted.log  ("Biocho/foo.mp4")
+   │                                                          │
+   │◀──sync_out (rclone deletefile via deleted.log)─────────────┘
+   └── (posted raw now gone from Drive → never re-pulled)
+```
+
+1. **`sync_in`** uses `rclone copy` (not `sync`) with excludes — pulls **new**
+   raws only, never deletes local files.
+2. After a video is posted, the raw source is archived locally to
+   `content/processed/<Product>/` and its remote-relative path is appended to
+   `logs/deleted.log`.
+3. **`sync_out`** runs after a successful upload: it copies logs + the
+   processed archive back to Drive (backup), then reads `deleted.log` and runs
+   `rclone deletefile` on the corresponding **remote** raws. Failed deletes are
+   kept for retry; successes are archived to `deleted_history.log`.
+4. Because the posted raw is gone from Drive, the next `sync_in` cannot pull it
+   back down → the same video is never uploaded twice.
+
+This closes the loop that `sync_drive.py` (sync_in) alone left open.
 - **`competitor_scraper.py`** — uses the battle-tested Apify actor
   `clockworks/tiktok-scraper` (same actor tiktokflow_vps ran in production).
   It writes per-post data into the `competitor_videos`/`competitor_daily`
