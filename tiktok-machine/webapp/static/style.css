@@ -497,3 +497,38 @@ footer {
         display: none;
     }
 }
+
+/* ── Charts & reports (Analytics tab) ───────────────────────────── */
+
+.chart-wrap {
+    position: relative;
+    height: 240px;
+    margin-bottom: 4px;
+}
+
+.chart-hint {
+    color: var(--text-secondary);
+    font-size: 0.85rem;
+    margin: 6px 0 0;
+}
+
+.report-box {
+    background: rgba(0, 0, 0, 0.25);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px;
+    max-height: 420px;
+    overflow-y: auto;
+    white-space: pre-wrap;
+    word-break: break-word;
+    font-family: 'SFMono-Regular', Consolas, 'Roboto Mono', monospace;
+    font-size: 0.8rem;
+    line-height: 1.5;
+    color: var(--text-primary);
+}
+
+@media (max-width: 720px) {
+    .report-box {
+        max-height: 300px;
+    }
+}

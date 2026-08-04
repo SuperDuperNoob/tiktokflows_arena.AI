@@ -42,6 +42,21 @@ def reset_config():
     lib._CFG = None
 
 
+@pytest.fixture(autouse=True)
+def fresh_db():
+    """Start each test with a clean SQLite DB so tests never pollute each other."""
+    db = lib.db_path()
+    for suffix in ("", "-wal", "-shm"):
+        p = Path(str(db) + suffix)
+        if p.exists():
+            try:
+                p.unlink()
+            except OSError:
+                pass
+    lib._CFG = None
+    yield
+
+
 def make_dirs(*names: str) -> dict[str, Path]:
     """Create temp subdirs under TMP_HOME and return {name: path}."""
     out = {}

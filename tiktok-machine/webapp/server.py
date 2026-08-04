@@ -443,6 +443,61 @@ async def queue_status():
     return {"count": len(items), "items": items}
 
 
+@app.get("/api/analytics")
+async def analytics(days: int = 7):
+    """Chart data from the analytics schema (views over time, by product).
+
+    Reads the same logs/tiktok.db analytics tables that reconcile_metrics,
+    ai_growth and generate_report use. Returns empty series on a fresh install
+    so the frontend can show "no data yet" instead of erroring.
+    """
+    import lib as _lib
+    conn = _lib.get_conn()
+    _lib.ensure_schema(conn)
+    since = (_lib.local_today() - timedelta(days=days)).isoformat()
+
+    views_by_day = [dict(r) for r in conn.execute(
+        """SELECT snap_date, SUM(views) AS views
+           FROM daily_metrics WHERE snap_date >= ?
+           GROUP BY snap_date ORDER BY snap_date""", (since,))]
+
+    # Net-new views per day (difference from the previous snapshot total).
+    deltas = []
+    prev = 0
+    for row in views_by_day:
+        cur = int(row["views"] or 0)
+        deltas.append({"date": row["snap_date"], "views": max(0, cur - prev)})
+        prev = cur
+
+    product_views = [dict(r) for r in conn.execute(
+        """WITH latest AS (
+               SELECT video_id, views,
+                      ROW_NUMBER() OVER (PARTITION BY video_id
+                                         ORDER BY snap_date DESC) AS rn
+               FROM daily_metrics WHERE snap_date >= ?
+           )
+           SELECT COALESCE(NULLIF(v.product_folder,''),'(unassigned)') AS product,
+                  CAST(SUM(l.views) AS INTEGER) AS views
+           FROM latest l JOIN videos v ON v.video_id = l.video_id
+           WHERE l.rn = 1
+           GROUP BY product_folder ORDER BY views DESC""", (since,))]
+
+    posts_by_day = [dict(r) for r in conn.execute(
+        """SELECT substr(posted_at,1,10) AS day, COUNT(*) AS n
+           FROM videos WHERE posted_at >= ?
+           GROUP BY day ORDER BY day""", (since,))]
+    conn.close()
+
+    return {
+        "views_by_day": views_by_day,
+        "views_delta_by_day": deltas,
+        "product_views": product_views,
+        "posts_by_day": posts_by_day,
+        "days": days,
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+
 # ── Helpers ──────────────────────────────────────────────────────────────
 
 def load_config() -> dict:
