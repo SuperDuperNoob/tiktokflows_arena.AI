@@ -91,12 +91,20 @@ tiktok-machine/
 ── logs/
 │   └── tiktok.db                ← SQLite database
 ├── scripts/
-│   ├── upload_orchestrator.py   ← Main loop (systemd service)
+│   ├── orchestrator.py          ← Unified main loop (systemd service)
+│   ├── lib.py                   ← Shared paths, timezone (MYT), DB, proxy helpers
+│   ├── caption_policy.py        ← Compliance core: regex + obfuscation (ported)
+│   ├── compliance.py            ← Two-layer compliance (regex + AI) — merged
+│   ├── video_processor.py       ← FFmpeg + Skia burn pipeline (ported v4)
+│   ├── uploader.py              ← Resilient uploader: proxy + geo-check (ported)
+│   ├── check_burns.py           ← Quality gate: catches static-image burns
+│   ├── sidecar_manager.py       ← .json/.pid metadata sidecars
+│   ├── ai_growth.py             ← Cached AI growth engine (≤1 call/day, ported)
+│   ├── generate_report.py       ← OPS report (daily_report.txt, ported)
+│   ├── reconcile_metrics.py     ← Links uploads to scraped metrics (ported)
 │   ├── db.py                    ← SQLite database layer
 │   ├── sync_drive.py            ← Google Drive sync via rclone
-│   ├── transform_video.py       ← FFmpeg + Skia video processing
-│   ├── compliance_engine.py     ← AI-powered caption compliance
-│   ├── ai_engine.py             ← AI caption + strategy generation
+│   ├── transform_video.py       ← 8 overlay styles + Skia renderer (legacy entry)
 │   ├── competitor_scraper.py    ← Apify competitor monitoring
 │   ├── telegram_bot.py          ← Telegram bot interface
 │   ├── import_cookies.py        ← Cookie import utility (Method 1)
@@ -110,14 +118,93 @@ tiktok-machine/
 │       └── app.js               ← Frontend logic
 ├── deploy/
 │   ├── setup.sh                 ← One-command VPS deployment
+│   ├── migrate_from_vps.sh      ← Migrate from the legacy tiktokflow_vps
 │   ├── tiktok-machine.service   ← systemd: main orchestrator
 │   ├── tiktok-webapp.service    ← systemd: web interface
 │   └── cloudflared.service      ← systemd: Cloudflare Tunnel
 ├── docs/
-│   └── cookie_login_guide.md    ← Detailed cookie login instructions
+│   ├── cookie_login_guide.md    ← Detailed cookie login instructions
+│   └── rollback.md              ← Rollback to tiktokflow_vps (<30 min)
+├── tests/
+│   ├── test_compliance.py       ← Obfuscation + banned-phrase + AI layer
+│   ├── test_video_processor.py  ← QC guards + sidecar generation
+│   └── test_uploader.py         ← Proxy shorthand + geo-check + strict mode
 ├── requirements.txt             ← Python dependencies
 └── README.md                    ← This file
 ```
+
+## Unified pipeline (battle-tested hardening)
+
+The core pipeline is a port of the production tiktokflow_vps v4 scripts:
+
+```
+  sync_drive ─▶ check_burns (quality gate) ─▶ video_processor ─▶ uploader ─▶ done
+                    │                          (renders + sidecars)   (proxy-safe)
+                    └─ quarantines static images
+```
+
+- **`video_processor.py`** — port of `process-videos-v4.sh`. FFmpeg + Skia PNG
+  overlay, the 8 modern overlay styles, `eof_action=repeat`, frame-count guard
+  and MB/s floor, sidecar generation, safe archive + `deleted.log`.
+- **`uploader.py`** — port of `auto_uploader_v4.py`. Proxy shorthand parsing,
+  pre-upload geo-check, strict mode, no-retry-on-dead-proxy, TikTok-API retry
+  with backoff, sidecar-driven cleanup.
+- **`compliance.py`** — merge of `caption_policy.py` (regex + obfuscation) and
+  the context-aware LLM check. Two-layer, obfuscation is anti-spam only.
+- **`ai_growth.py`** — port of `ai_growth_engine.py`. Cached AI, one paid call
+  per calendar day (MYT). Writes only `growth_report.txt`.
+- **`generate_report.py`** / **`reconcile_metrics.py`** — ported OPS report and
+  analytics reconciliation.
+
+### Battle-tested lessons (from tiktokflow_vps)
+
+1. **Never `shortest=1` on the overlay filter.** The caption is a single-frame
+   PNG, so `overlay=...:shortest=1` ends the output after exactly one frame and
+   ships a 1-frame mp4 that uploads fine and shows as a still image on TikTok.
+   The pipeline uses `eof_action=repeat` instead.
+2. **Never `-loop 1` on the PNG input.** An infinite loop plus no other
+   terminating stream encodes until the disk fills. The base video must stay the
+   one finite stream.
+3. **Proxy transport errors abort immediately.** Retrying re-sends the whole
+   video through a dead proxy and burns another 5-10MB of metered quota per
+   attempt for nothing. Only TikTok API failures retry (with backoff).
+4. **Cached AI — max 1 call/day.** `daily_summary.ai_called_at` gates the paid
+   `/growth` call. A failed call is *not* cached, so a blip does not burn the
+   day's budget. Only `/growth` passes `--ai`; the scheduled pipeline makes zero
+   AI calls.
+5. **Business timezone (MYT, UTC+8).** All timestamps, "today" rollover and the
+   daily AI budget use `Asia/Kuala_Lumpur`, not the container's TZ.
+6. **Quality floors.** Burns under `MIN_MB_PER_SEC=0.30` are flagged; burns under
+   `MIN_OUTPUT_FRAMES=10` are quarantined, never uploaded. The raw source is
+   left in place so the next run retries it.
+7. **Sidecars before upload.** An mp4 without a `.json`/`.pid` sidecar is
+   skipped (no untraceable posts). Sidecars are cleaned up after success.
+8. **Obfuscation is anti-spam, not a compliance licence.** Medical claims,
+   prices and absolute overclaims are dropped/repaired — disguising their
+   spelling does not make them compliant.
+
+### Troubleshooting
+
+| Symptom | Cause / fix |
+|---|---|
+| `BROKEN BURN ... STATIC IMAGE` | Overlay ended early. Re-run `python3 check_burns.py --quarantine`, check you never reintroduced `shortest=1`. |
+| `Upload proxy: None ... shadowban risk` | `proxy.endpoint` unset. Set a Malaysian residential/4G proxy. |
+| `STRICT: aborting BEFORE upload` | `proxy.geo_check` verified a non-MY/datacenter exit. Fix the proxy or set `strict_mode: false`. |
+| Uploads "succeed" but 0 views | Datacenter IP. Use a residential/4G proxy (not datacenter). |
+| `/growth` returns the same text all day | Correct — the daily AI result is cached (`ai_called_at`). Tapping again is free. |
+| AI spending more than 1 call/day | Only `/growth --ai` should call AI. Confirm `ai.caption_per_video: false`. |
+| Cookie "older than 12h" warning | Session likely expired. `python3 qr_login.py` or re-import cookies. |
+| `check_burns` exit code 1 | Static images found. Use `--quarantine`; broken burns are expected during a config change. |
+
+### Migrating from tiktokflow_vps
+
+```bash
+sudo bash /opt/tiktok-machine/deploy/migrate_from_vps.sh
+```
+
+It backs up the old install, copies config/cookies/products/captions, starts the
+systemd services and verifies them. To go back, follow `docs/rollback.md`
+(under 30 minutes).
 
 ---
 

@@ -11,6 +11,9 @@ logs/tiktok.db
 logs/*.db-journal
 logs/*.db-wal
 
+# Runtime logs / reports (generated, not source)
+logs/
+
 # Content (videos are large)
 content/raw/**/*.mp4
 content/raw/**/*.mov

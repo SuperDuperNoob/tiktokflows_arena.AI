@@ -396,6 +396,53 @@ async def get_qr_image(path: str = Query(...)):
     return FileResponse(path, media_type="image/png")
 
 
+# ── Reports & queue (Phase 3 additions) ─────────────────────────────────
+
+def _read_report(path: Path) -> str | None:
+    try:
+        return path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return None
+    except OSError:
+        return None
+
+
+@app.get("/api/growth-report")
+async def growth_report():
+    """Cached growth analysis from ai_growth.py (growth_report.txt)."""
+    import lib as _lib
+    text = _read_report(_lib.growth_report())
+    return {"exists": text is not None, "report": text or "(no growth report yet - run ai_growth.py --ai)"}
+
+
+@app.get("/api/ops-report")
+async def ops_report():
+    """Daily OPS report from generate_report.py (daily_report.txt)."""
+    import lib as _lib
+    text = _read_report(_lib.daily_report())
+    return {"exists": text is not None, "report": text or "(no ops report yet - run generate_report.py)"}
+
+
+@app.get("/api/queue-status")
+async def queue_status():
+    """Upload queue: rendered videos with their sidecar metadata."""
+    import lib as _lib
+    from sidecar_manager import SidecarManager
+    manager = SidecarManager(_lib.queue_dir())
+    items = []
+    for mp4, _primary, meta in manager.find():
+        items.append({
+            "filename": mp4.name,
+            "product_folder": meta.get("product_folder", ""),
+            "product_id": meta.get("product_id", ""),
+            "title": meta.get("title", ""),
+            "size_mb": meta.get("file_size_mb"),
+            "style": meta.get("style_name"),
+            "processed_at": meta.get("processed_at"),
+        })
+    return {"count": len(items), "items": items}
+
+
 # ── Helpers ──────────────────────────────────────────────────────────────
 
 def load_config() -> dict:
