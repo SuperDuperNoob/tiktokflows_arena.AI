@@ -1,0 +1,30 @@
+[Unit]
+Description=TikTok Auto-Posting Machine — Web Interface
+After=network.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=tiktok
+Group=tiktok
+WorkingDirectory=/opt/tiktok-machine
+ExecStart=/opt/tiktok-machine/venv/bin/python webapp/server.py
+Restart=always
+RestartSec=30
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=tiktok-webapp
+
+# Security
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/tiktok-machine
+PrivateTmp=true
+
+Environment=PYTHONUNBUFFERED=1
+Environment=HOME=/opt/tiktok-machine
+Environment=WEBAPP_PORT=8080
+
+[Install]
+WantedBy=multi-user.target

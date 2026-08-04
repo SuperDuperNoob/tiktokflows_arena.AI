@@ -1,0 +1,21 @@
+[Unit]
+Description=Cloudflare Tunnel — TikTok Web Interface
+After=network.target tiktok-webapp.service
+Wants=tiktok-webapp.service
+
+[Service]
+Type=simple
+User=tiktok
+Group=tiktok
+ExecStart=/usr/local/bin/cloudflared tunnel --no-autoupdate run --token YOUR_CLOUDFLARE_TUNNEL_TOKEN
+Restart=always
+RestartSec=30
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=cloudflared-tiktok
+
+# The tunnel forwards: your-subdomain.trycloudflare.com → localhost:8080
+# No ports opened on the VPS. All traffic goes through Cloudflare's edge.
+
+[Install]
+WantedBy=multi-user.target
