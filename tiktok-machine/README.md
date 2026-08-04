@@ -78,16 +78,13 @@ tiktok-machine/
 ├── config/
 │   └── config.yaml              ← Master configuration (EDIT THIS)
 ├── content/
-│   ├── products.json            ← Product → TikTok Shop ID mapping
-│   ├── raw/                     ← Synced from Google Drive
-│   │   ├── Biocho/
-│   │   └── Serum/
-│   ├── processed/               ← Transformed videos (temporary)
-│   ├── posted/                  ← Archived after successful upload
-│   └── failed/                  ← Quarantined broken burns
-── captions/
-│   └── pool.json                ← Caption pool backup
-├── sounds/                      ← Royalty-free audio tracks (20+)
+│   ├── products.json            ← Product → TikTok Shop ID mapping (dashboard)
+│   └── raw/                     ← "Drive root" the pipeline scans
+│       ├── product_id.txt       ← Real product IDs + captions/titles (from vps)
+│       ├── preset_text.txt      ← Overlay caption pool (example included)
+│       ├── soundtrack/          ← legacy audio (see sounds/ at root)
+│       └── <Product>/           ← one folder per product; drop raw .mp4 here
+├── sounds/                      ← Royalty-free audio tracks (drop .mp3 here)
 ── logs/
 │   └── tiktok.db                ← SQLite database
 ├── scripts/
@@ -124,6 +121,7 @@ tiktok-machine/
 │   └── cloudflared.service      ← systemd: Cloudflare Tunnel
 ├── docs/
 │   ├── cookie_login_guide.md    ← Detailed cookie login instructions
+│   ├── content_guide.md         ← What to fill in (products, captions, media)
 │   └── rollback.md              ← Rollback to tiktokflow_vps (<30 min)
 ├── tests/
 │   ├── test_compliance.py       ← Obfuscation + banned-phrase + AI layer
@@ -230,6 +228,13 @@ systemd services and verifies them. To go back, follow `docs/rollback.md`
 | OpenAI-compatible API | AI captions & compliance |
 | Apify API key ($5/month) | Competitor scraping |
 | Cloudflare account (free) | Secure web access, no open ports |
+
+**Content is the one thing you must supply.** The repo ships an example
+`content/raw/` structure (real product IDs from tiktokflow_vps, an example
+caption pool, per-product folders and placeholders) — you drop raw `.mp4`s into
+each product folder, drop `.mp3`s into `sounds/`, and edit
+`content/raw/product_id.txt` / `preset_text.txt`.
+> **Full step-by-step: [`docs/content_guide.md`](docs/content_guide.md).**
 
 ### 1. Deploy to VPS
 
