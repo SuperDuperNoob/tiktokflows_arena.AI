@@ -7,6 +7,7 @@ being re-downloaded/re-uploaded on the next sync_in. rclone is mocked.
 from pathlib import Path
 
 import lib
+from sync_drive import DriveSyncer
 from sync_out import SyncOut
 
 
@@ -78,6 +79,18 @@ def test_empty_deleted_log_does_nothing(monkeypatch):
     s = SyncOut({"google_drive": {}})
     assert s._delete_remote_processed() == 0
     assert called == []
+
+
+def test_sync_in_and_sync_out_resolve_same_remote():
+    """The anti-duplicate loop only works if both syncs point at the same Drive
+    folder, regardless of whether rclone_remote is written as 'gdrive:' or
+    'gdrive' (no double-colon bug)."""
+    for given in ("gdrive:", "gdrive"):
+        sd = DriveSyncer({"rclone_remote": given, "remote_path": "TikTokContent"}, None)
+        so = SyncOut({"google_drive": {"rclone_remote": given, "remote_path": "TikTokContent"}})
+        assert sd._remote_root() == "gdrive:TikTokContent"
+        assert so._remote_root() == "gdrive:TikTokContent"
+        assert sd._remote_root() == so._remote_root()
 
 
 def test_sync_runs_all_steps(monkeypatch):

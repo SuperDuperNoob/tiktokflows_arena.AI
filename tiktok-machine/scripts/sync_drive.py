@@ -85,6 +85,16 @@ class DriveSyncer:
 
         return True, stock_report
 
+    def _remote_root(self) -> str:
+        """Remote root, consistent with sync_out. rclone_remote may be given as
+        "gdrive:" or "gdrive" — strip any trailing colon so "gdrive::path" can
+        never happen. Both sync_in and sync_out MUST resolve to the same Drive
+        folder for the anti-duplicate loop to work."""
+        base = self.rclone_remote.rstrip(":")
+        if self.remote_path:
+            return f"{base}:{self.remote_path}"
+        return f"{base}:"
+
     def _rclone_sync(self) -> Tuple[bool, str]:
         """Execute rclone sync command.
 
@@ -93,7 +103,7 @@ class DriveSyncer:
         sync_out.py, so they never come back; deleting locally would risk
         losing raws that are still waiting on Drive.
         """
-        remote_full = f"{self.rclone_remote}:{self.remote_path}"
+        remote_full = self._remote_root()
 
         cmd = [
             "rclone", "copy",

@@ -122,6 +122,7 @@ tiktok-machine/
 ├── docs/
 │   ├── cookie_login_guide.md    ← Detailed cookie login instructions
 │   ├── content_guide.md         ← What to fill in (products, captions, media)
+│   ├── google_drive_sync_guide.md ← rclone_remote/remote_path setup + anti-dupe
 │   └── rollback.md              ← Rollback to tiktokflow_vps (<30 min)
 ├── tests/
 │   ├── test_compliance.py       ← Obfuscation + banned-phrase + AI layer
@@ -183,6 +184,9 @@ Google Drive ──sync_in (rclone copy, pull new only)──▶ content/raw/<Pr
    back down → the same video is never uploaded twice.
 
 This closes the loop that `sync_drive.py` (sync_in) alone left open.
+
+> **Full setup for the `google_drive` config (rclone remote + folder, rclone
+> install, verification, troubleshooting): [`docs/google_drive_sync_guide.md`](docs/google_drive_sync_guide.md)**
 - **`competitor_scraper.py`** — uses the battle-tested Apify actor
   `clockworks/tiktok-scraper` (same actor tiktokflow_vps ran in production).
   It writes per-post data into the `competitor_videos`/`competitor_daily`

@@ -188,6 +188,10 @@ re-download or re-upload a clip:
 > and `product_id.txt` is unaffected — those are source-of-truth files kept in
 > the repo. Only `deleted.log` and `deleted_history.log` track what has already
 > been posted remotely.
+>
+> **To set up the `google_drive` config (rclone remote + folder) so sync_in and
+> sync_out know where your product folders live on Drive, see
+> [`docs/google_drive_sync_guide.md`](google_drive_sync_guide.md).**
 
 When those pass, start the orchestrator:
 
