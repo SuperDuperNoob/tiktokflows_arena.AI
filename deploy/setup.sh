@@ -89,10 +89,7 @@ fi
 # ---- 4. Set up project directory ----
 echo "[4/8] Setting up project directory..."
 mkdir -p "$PROJECT_DIR"
-# Copy project files (assumes you've placed them here)
-if [ -d "$(dirname "$0")/../tiktok-machine" ]; then
-    cp -r "$(dirname "$0")/../tiktok-machine/"* "$PROJECT_DIR/"
-fi
+# This script runs from the project root after it has been copied to PROJECT_DIR.
 mkdir -p "$PROJECT_DIR"/{content/{raw,processed,posted,failed},captions,sounds,logs,config}
 echo "  ✓ Project directory ready"
 
