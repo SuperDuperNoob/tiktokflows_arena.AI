@@ -27,6 +27,7 @@ function setupTabs() {
             if (tab === 'captions') { loadCaptions(); loadProducts(); }
             if (tab === 'products') loadProductsDetail();
             if (tab === 'config') loadConfig();
+            if (tab === 'analytics') loadAnalytics();
             if (tab === 'events') loadEvents();
             if (tab === 'tools') loadCookieStatus();
         });
@@ -93,6 +94,22 @@ async function loadDashboard() {
             cookieStatus.textContent = 'No cookie file';
             cookieStatus.style.color = 'var(--accent-yellow)';
         }
+
+        // Drive cleanup
+        const dc = data.drive_cleanup || {};
+        document.getElementById('stat-drive-cleaned').textContent = dc.deleted_today || 0;
+        const pending = dc.pending || 0;
+        const pendEl = document.getElementById('stat-drive-pending');
+        if (pending > 0) {
+            pendEl.textContent = `${pending} pending delete`;
+            pendEl.style.color = 'var(--accent-yellow)';
+        } else {
+            pendEl.textContent = 'all synced';
+            pendEl.style.color = 'var(--accent-green)';
+        }
+
+        // Compact views chart (from /api/analytics)
+        renderDashboardChart();
 
         // Stock list
         const stockList = document.getElementById('stock-list');
@@ -500,4 +517,156 @@ function formatTime(isoStr) {
 function truncate(str, len) {
     if (!str) return '-';
     return str.length > len ? str.slice(0, len) + '...' : str;
+}
+
+// ── Analytics / Charts ─────────────────────────────────────────────────
+
+const chartInstances = {};
+
+function makeChart(canvasId, config) {
+    const canvas = document.getElementById(canvasId);
+    if (!canvas) return;
+    if (chartInstances[canvasId]) chartInstances[canvasId].destroy();
+    chartInstances[canvasId] = new Chart(canvas, config);
+}
+
+function chartBase(dark = true) {
+    const gridColor = dark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)';
+    const tickColor = dark ? '#8a90a2' : '#666';
+    return {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: { legend: { labels: { color: dark ? '#e8eaf0' : '#333' } } },
+        scales: {
+            x: { ticks: { color: tickColor }, grid: { color: gridColor } },
+            y: { beginAtZero: true, ticks: { color: tickColor }, grid: { color: gridColor } },
+        },
+    };
+}
+
+async function renderDashboardChart() {
+    try {
+        const ana = await api('GET', '/api/analytics?days=7');
+        const labels = ana.views_by_day.map(r => (r.snap_date || '').slice(5));
+        const net = ana.views_delta_by_day.map(r => r.views || 0);
+        if (!labels.length) {
+            chartEmpty('chart-dashboard-empty');
+            return;
+        }
+        chartClearEmpty('chart-dashboard-empty');
+        makeChart('chart-dashboard-views', {
+            type: 'line',
+            data: {
+                labels,
+                datasets: [{
+                    label: 'Views / day', data: net,
+                    borderColor: '#FFD700',
+                    backgroundColor: 'rgba(255,215,0,0.18)',
+                    fill: true, tension: 0.3,
+                    pointRadius: 2,
+                }],
+            },
+            options: {
+                ...chartBase(),
+                plugins: {
+                    legend: { display: false },
+                    tooltip: { callbacks: { label: c => `${c.parsed.y} views` } },
+                },
+                scales: {
+                    x: { ticks: { color: '#8a90a2', maxTicksLimit: 7 }, grid: { display: false } },
+                    y: { beginAtZero: true, ticks: { color: '#8a90a2' }, grid: { color: 'rgba(255,255,255,0.06)' } },
+                },
+            },
+        });
+    } catch (err) {
+        console.error('Dashboard chart failed:', err);
+    }
+}
+
+function chartEmpty(id) {
+    const el = document.getElementById(id);
+    if (el) el.textContent = 'No data yet — post videos and run a scrape + reconcile first.';
+}
+
+function chartClearEmpty(id) {
+    const el = document.getElementById(id);
+    if (el) el.textContent = '';
+}
+
+async function loadAnalytics() {
+    try {
+        const [ana, growth, ops, queue] = await Promise.all([
+            api('GET', '/api/analytics?days=7'),
+            api('GET', '/api/growth-report'),
+            api('GET', '/api/ops-report'),
+            api('GET', '/api/queue-status'),
+        ]);
+
+        // ── Views over time (line): cumulative + net-new per day ──
+        const labels = ana.views_by_day.map(r => (r.snap_date || '').slice(5));
+        const cum = ana.views_by_day.map(r => r.views || 0);
+        const net = ana.views_delta_by_day.map(r => r.views || 0);
+
+        if (labels.length) {
+            chartClearEmpty('chart-views-empty');
+            makeChart('chart-views-line', {
+                type: 'line',
+                data: {
+                    labels,
+                    datasets: [
+                        { label: 'Total views', data: cum, borderColor: '#FE2C55',
+                          backgroundColor: 'rgba(254,44,85,0.15)', fill: true, tension: 0.3 },
+                        { label: 'Net new / day', data: net, borderColor: '#FFD700',
+                          backgroundColor: 'rgba(255,215,0,0.12)', fill: true, tension: 0.3 },
+                    ],
+                },
+                options: chartBase(),
+            });
+        } else {
+            chartEmpty('chart-views-empty');
+        }
+
+        // ── Views by product (horizontal bar) ──
+        const prods = ana.product_views.map(r => r.product);
+        const prodViews = ana.product_views.map(r => r.views || 0);
+        if (prods.length) {
+            chartClearEmpty('chart-product-empty');
+            makeChart('chart-product-bar', {
+                type: 'bar',
+                data: {
+                    labels: prods,
+                    datasets: [{ label: 'Views', data: prodViews,
+                                backgroundColor: '#FFD700' }],
+                },
+                options: {
+                    ...chartBase(),
+                    indexAxis: 'y',
+                    plugins: { legend: { display: false } },
+                },
+            });
+        } else {
+            chartEmpty('chart-product-empty');
+        }
+
+        // ── Upload queue ──
+        const queueDiv = document.getElementById('queue-list');
+        if (!queue.count) {
+            queueDiv.innerHTML = '<div class="empty-state">Queue is empty — run video_processor.py</div>';
+        } else {
+            queueDiv.innerHTML = queue.items.map(it =>
+                `<div class="list-item">
+                    <span class="label">${it.product_folder || '?'} · ${it.filename}</span>
+                    <span class="meta">${it.title || ''} · ${it.size_mb != null ? it.size_mb + 'MB' : ''}${it.style ? ' · ' + it.style : ''}</span>
+                </div>`).join('');
+        }
+
+        // ── Growth + OPS reports ──
+        const growEl = document.getElementById('growth-report-text');
+        growEl.textContent = growth.exists ? growth.report : '(no growth report yet — run ai_growth.py --ai)';
+        const opsEl = document.getElementById('ops-report-text');
+        opsEl.textContent = ops.exists ? ops.report : '(no ops report yet — run generate_report.py)';
+
+    } catch (err) {
+        console.error('Analytics load failed:', err);
+    }
 }

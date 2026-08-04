@@ -24,6 +24,7 @@
         <button class="tab-btn" data-tab="captions">💬 Captions</button>
         <button class="tab-btn" data-tab="products">📦 Products</button>
         <button class="tab-btn" data-tab="config">️ Config</button>
+        <button class="tab-btn" data-tab="analytics">📈 Analytics</button>
         <button class="tab-btn" data-tab="events">📜 Events</button>
         <button class="tab-btn" data-tab="tools">🔧 Tools</button>
     </nav>
@@ -50,6 +51,19 @@
                     <div class="stat-value" id="stat-cookie-age">-</div>
                     <div class="stat-sub" id="stat-cookie-status">-</div>
                 </div>
+                <div class="stat-card" id="drive-cleanup-card">
+                    <div class="stat-label">Drive Cleanup</div>
+                    <div class="stat-value" id="stat-drive-cleaned">-</div>
+                    <div class="stat-sub" id="stat-drive-pending">-</div>
+                </div>
+            </div>
+
+            <div class="card">
+                <h3>📈 Views — last 7 days</h3>
+                <div class="chart-wrap chart-compact">
+                    <canvas id="chart-dashboard-views" height="160"></canvas>
+                </div>
+                <p class="chart-hint" id="chart-dashboard-empty"></p>
             </div>
 
             <div class="grid-2col">
@@ -150,6 +164,46 @@
             </div>
         </section>
 
+        <!-- Analytics Tab -->
+        <section id="tab-analytics" class="tab-content">
+            <div class="card">
+                <div class="filter-bar">
+                    <span class="hint">Performance from the analytics DB (own videos)</span>
+                    <button class="btn btn-sm" onclick="loadAnalytics()">🔄 Refresh</button>
+                </div>
+            </div>
+            <div class="grid-2col">
+                <div class="card">
+                    <h3>📈 Views Over Time</h3>
+                    <div class="chart-wrap">
+                        <canvas id="chart-views-line" height="220"></canvas>
+                    </div>
+                    <p class="chart-hint" id="chart-views-empty"></p>
+                </div>
+                <div class="card">
+                    <h3>📊 Views by Product</h3>
+                    <div class="chart-wrap">
+                        <canvas id="chart-product-bar" height="220"></canvas>
+                    </div>
+                    <p class="chart-hint" id="chart-product-empty"></p>
+                </div>
+            </div>
+            <div class="card">
+                <h3>📦 Upload Queue</h3>
+                <div id="queue-list" class="list-container"></div>
+            </div>
+            <div class="grid-2col">
+                <div class="card">
+                    <h3>🤖 Growth Report</h3>
+                    <pre id="growth-report-text" class="report-box"></pre>
+                </div>
+                <div class="card">
+                    <h3>📋 OPS Report</h3>
+                    <pre id="ops-report-text" class="report-box"></pre>
+                </div>
+            </div>
+        </section>
+
         <!-- Tools Tab -->
         <section id="tab-tools" class="tab-content">
             <div class="grid-2col">
@@ -185,6 +239,7 @@
         <span id="refresh-timer">Auto-refresh: 30s</span>
     </footer>
 
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
     <script src="/static/app.js"></script>
 </body>
 </html>

@@ -42,6 +42,9 @@ CREATE TABLE IF NOT EXISTS raw_stock (
     added_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     last_used DATETIME,
     use_count INTEGER DEFAULT 0,
+    file_hash TEXT,            -- fingerprint of the raw video
+    posted_at TEXT,            -- set when the raw is consumed (burned+archived); the source of truth for "already posted"
+    drive_cleaned_at TEXT,     -- set when sync_out deleted its Drive copy (cosmetic cleanup)
     UNIQUE(product_name, filename)
 );
 
@@ -100,6 +103,13 @@ class Database:
     def _init_schema(self):
         with self._connect() as conn:
             conn.executescript(SCHEMA)
+            # Migrate older raw_stock tables (ledger columns).
+            cols = {r["name"] for r in conn.execute("PRAGMA table_info(raw_stock)")}
+            for col, ddl in (("file_hash", "TEXT"),
+                             ("posted_at", "TEXT"),
+                             ("drive_cleaned_at", "TEXT")):
+                if col not in cols:
+                    conn.execute(f"ALTER TABLE raw_stock ADD COLUMN {col} {ddl}")
 
     @contextmanager
     def _connect(self):
@@ -206,11 +216,15 @@ class Database:
                 )
 
     def get_raw_stock_counts(self) -> dict:
-        """Get raw video counts per product: {product_name: count}."""
+        """Get AVAILABLE raw video counts per product: {product_name: count}.
+        Excludes raws already consumed (posted_at set) so stock reflects what
+        can still be posted."""
         with self._connect() as conn:
             rows = conn.execute(
                 """SELECT product_name, COUNT(*) as cnt
-                   FROM raw_stock GROUP BY product_name"""
+                   FROM raw_stock
+                   WHERE posted_at IS NULL
+                   GROUP BY product_name"""
             ).fetchall()
             return {r["product_name"]: r["cnt"] for r in rows}
 
@@ -220,7 +234,7 @@ class Database:
         with self._connect() as conn:
             rows = conn.execute(
                 """SELECT * FROM raw_stock
-                   WHERE product_name = ?
+                   WHERE product_name = ? AND posted_at IS NULL
                    ORDER BY last_used ASC NULLS FIRST, use_count ASC
                    LIMIT 100""",
                 (product_name,)
@@ -401,7 +415,7 @@ class Database:
         with self._connect() as conn:
             rows = conn.execute(
                 """SELECT rs.product_name,
-                   COUNT(rs.id) as stock_count,
+                   COUNT(CASE WHEN rs.posted_at IS NULL THEN 1 END) as stock_count,
                    MAX(p.posted_at) as last_posted,
                    COALESCE(MAX(p.posted_at), '1970-01-01') as sort_key
                    FROM raw_stock rs

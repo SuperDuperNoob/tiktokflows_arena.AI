@@ -1,0 +1,175 @@
+# =============================================================================
+# TikTok Auto-Posting Machine — Master Configuration
+# =============================================================================
+# Merge of tiktokflow_vps/.env.example (battle-tested production settings) and
+# tiktok-machine's config layout. Everything has a safe default, so a missing
+# key never crashes a run — but set the real values below.
+#
+# Keep this file out of git history if it holds live credentials:
+#   echo "tiktok-machine/config/config.yaml" >> .gitignore
+# =============================================================================
+
+# --- TikTok account ---------------------------------------------------------
+tiktok:
+  # Cookie/session profile name used by TiktokAutoUploader.
+  session_username: "kumpul.shop"
+  # Absolute path to the TiktokAutoUploader checkout (contains config.txt and
+  # CookiesDir/). Leave default if you cloned it next to this repo.
+  uploader_dir: "/opt/TiktokAutoUploader"
+  # Warn when cookies are older than this many days.
+  cookie_max_age_days: 7
+
+# --- Posting schedule -------------------------------------------------------
+# Every ~2 hours with human-like jitter, quiet between 2AM-6AM MYT.
+posting:
+  interval_minutes: 120      # base interval between posts
+  jitter_minutes: 30         # ±30 min random jitter
+  quiet_hours_start: 2       # MYT hour the system goes quiet
+  quiet_hours_end: 6
+  daily_post_target: 7
+
+# --- Content / paths --------------------------------------------------------
+content:
+  raw_dir: "content/raw"             # product video folders (synced from Drive)
+  processed_dir: "content/processed" # rendered videos -> the upload queue
+  posted_dir: "content/posted"       # archived after successful upload
+  failed_dir: "content/failed"       # quarantined broken burns
+  sounds_dir: "sounds"               # royalty-free audio tracks
+  captions_pool: "content/captions/pool.json"
+  min_stock_warning: 5
+  # Caption pool (one caption per line, separated by ---), ported from the old
+  # preset_text.txt. Kept as a plain text file so /growth can top it up.
+  preset_text: "content/raw/preset_text.txt"
+  # Product -> TikTok Shop ID mapping, ported from product_id.txt:
+  #   folder | product_id | title / title | caption / caption
+  product_id_file: "content/raw/product_id.txt"
+
+# --- Residential proxy (anti-shadowban) --------------------------------------
+# A VPS has a datacenter IP; TikTok quietly shadowbans uploads from datacenter
+# ranges ("posted but 0 views"). Point this at a *Malaysian residential or
+# 4G/mobile* proxy. ONLY the TikTok upload is routed through it (passed
+# per-call, never via global HTTP(S)_PROXY), so Apify/Telegram/Drive/AI
+# traffic does not consume proxy GB.
+proxy:
+  # Accepts canonical AND shorthand formats:
+  #   http://user:pass@host:port
+  #   user:pass@host:port
+  #   user:pass:host:port          <- your vendor's common format
+  #   host:port:user:pass          <- alternate vendor order
+  #   host:port
+  endpoint: ""   # e.g. "user:pass:123.45.67.89:8080"
+
+  strict_mode: true    # Abort the run when the exit IP is verified non-MY or
+                       # datacenter-class (recommended on metered plans).
+  geo_check: true      # ~2KB pre-upload exit-IP check (ip-api.com + ipinfo.io
+                       # fallback) so a dead/wrong-country proxy never burns a
+                       # full metered upload.
+  expected_country: "MY"
+  verify_endpoint: "https://ipinfo.io/json"
+  # Org strings that mark a proxy as datacenter-class (0-view shadowban risk).
+  datacenter_keywords:
+    - "amazon"
+    - "digitalocean"
+    - "google cloud"
+    - "microsoft"
+    - "ovh"
+    - "linode"
+    - "vultr"
+
+# --- AI (capped, cached) -----------------------------------------------------
+# Spend is deliberately small: the scheduled pipeline makes NO AI calls. The
+# only paid call is the first /growth of the day (later taps reuse it), so the
+# normal cost is 1 call/day. Set ENABLE_AI_CAPTION_REWRITE=false to kill every
+# AI call.
+ai:
+  api_key: ""                      # your OpenAI-compatible key
+  base_url: "https://api.iamhc.cn/v1"
+  model: "auto"
+  growth_locale: "ms-MY"
+  enable_ai: true                  # global kill switch for all AI calls
+  # Never generate a caption per rendered video (off by default; would be ~7
+  # paid calls/day). Turn on only if you explicitly want bespoke overlays.
+  caption_per_video: false
+  # Hard cap: one paid AI call per calendar day (business timezone).
+  max_calls_per_day: 1
+  timeout_seconds: 45
+  retries: 2
+
+# --- Compliance -------------------------------------------------------------
+compliance:
+  strict_mode: true       # reject on regex hit rather than auto-fix
+  use_ai: true            # second layer: LLM context-aware check
+  # Additional banned phrases on top of caption_policy's built-in lexicon.
+  banned_phrases: []
+
+# --- Encoding quality -------------------------------------------------------
+# CRF is the quality knob (lower = better). Keep <= 25 or TikTok's own
+# re-encode of the upload looks bad. b:v is intentionally absent: libx264
+# ignores ABR when -crf is set.
+encoding:
+  crf: 23
+  maxrate: "5M"
+  bufsize: "8M"
+  abr: "128k"
+  preset: "veryfast"
+  threads: 1
+  # Burns below this MB/s are flagged as a quality regression.
+  min_mb_per_sec: 0.30
+  # Burns with fewer frames than this are still images (quarantined, never
+  # handed to the uploader).
+  min_output_frames: 10
+  # Chance (0-1) of the red accent overlay instead of yellow/white.
+  overlay_accent_rate: 0.15
+
+# --- Rendering --------------------------------------------------------------
+rendering:
+  # Force one overlay style (e.g. "classic_yellow"). null = weighted random.
+  force_style: null
+
+# --- Analytics --------------------------------------------------------------
+analytics:
+  # Rival handle the growth engine benchmarks against.
+  rival_handle: "reski.reski700"
+
+# --- Google Drive sync ------------------------------------------------------
+# Anti-duplicate flow (DB-as-truth + Drive cleanup):
+#   sync_in (rclone copy)  pulls NEW raws from Drive -> content/raw/
+#   burn                   archives the raw locally AND records it in the DB
+#                          ledger (raw_stock.posted_at) = "already posted"
+#   sync_out               copies logs + processed archive back to Drive, then
+#                          reads the DB and rclone deletefile's the posted raws
+#                          from Drive (cosmetic cleanup; a failed delete can
+#                          never cause a duplicate because the DB already
+#                          excludes the raw from selection)
+google_drive:
+  rclone_remote: ""            # e.g. "gdrive:"
+  remote_path: ""              # e.g. "TikTokContent" (folder that holds product dirs)
+  products_file: "content/products.json"
+
+# --- Apify competitor scraping ----------------------------------------------
+apify:
+  token: ""
+  # Apify actor used to scrape competitor TikTok profiles. We use the
+  # battle-tested `clockworks/tiktok-scraper` (same actor tiktokflow_vps ran in
+  # production). It returns per-post videos with playCount/musicMeta/hashtags,
+  # which map 1:1 to our competitor_videos/competitor_daily analytics tables.
+  actor_id: "clockworks/tiktok-scraper"
+  # Handles to scrape. Defaults to own account + rival if left empty.
+  competitors: []
+  results_per_page: 20        # per profile; enough for a 7-day trend
+  max_competitors: 5
+  # Hour (MYT) the daily competitor scrape runs.
+  scrape_schedule_hour: 3
+
+# --- Telegram ---------------------------------------------------------------
+telegram:
+  bot_token: ""
+  chat_id: ""
+
+# --- Logging / database ------------------------------------------------------
+logging:
+  db_path: "logs/tiktok.db"    # single SQLite DB (WAL) for ops + analytics
+
+# --- Timezone ---------------------------------------------------------------
+timezone:
+  tz: "Asia/Kuala_Lumpur"      # business timezone (MYT, UTC+8)

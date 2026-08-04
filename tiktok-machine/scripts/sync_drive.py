@@ -85,20 +85,45 @@ class DriveSyncer:
 
         return True, stock_report
 
+    def _remote_root(self) -> str:
+        """Remote root, consistent with sync_out. rclone_remote may be given as
+        "gdrive:" or "gdrive" — strip any trailing colon so "gdrive::path" can
+        never happen. Both sync_in and sync_out MUST resolve to the same Drive
+        folder for the anti-duplicate loop to work."""
+        base = self.rclone_remote.rstrip(":")
+        if self.remote_path:
+            return f"{base}:{self.remote_path}"
+        return f"{base}:"
+
     def _rclone_sync(self) -> Tuple[bool, str]:
-        """Execute rclone sync command."""
-        remote_full = f"{self.rclone_remote}:{self.remote_path}"
+        """Execute rclone sync command.
+
+        Uses `rclone copy` (NOT `sync`) — pull new/changed raws only, never
+        delete local files. Already-posted raws are removed from Drive by
+        sync_out.py, so they never come back; deleting locally would risk
+        losing raws that are still waiting on Drive.
+        """
+        remote_full = self._remote_root()
 
         cmd = [
-            "rclone", "sync",
+            "rclone", "copy",
             remote_full,
             self.raw_dir,
-            "--verbose",
-            "--stats", "one-line",
-            "--transfers", "4",
-            "--checkers", "8",
-            "--retries", "3",
-            "--low-level-retries", "5",
+            "--transfers", "1",
+            "--checkers", "2",
+            "--buffer-size", "16M",
+            "--retries", "2",
+            "--low-level-retries", "3",
+            # Never pull archives / temp / outputs back down.
+            "--exclude", "processed/**",
+            "--exclude", "failed/**",
+            "--exclude", "posted/**",
+            "--exclude", "tmp/**",
+            "--exclude", "*.lock",
+            "--exclude", "burn_log.jsonl",
+            "--exclude", "deleted.log",
+            "--exclude", "deleted_history.log",
+            "--log-level", "INFO",
         ]
 
         try:
@@ -142,7 +167,7 @@ class DriveSyncer:
 
     def _list_videos(self, directory: str) -> List[str]:
         """List video files in a directory."""
-        video_extensions = {".mp4", ".mov", ".avi", ".webm", ".mkv", ".m4v"}
+        video_extensions = lib.VIDEO_EXTS
         if not os.path.isdir(directory):
             return []
 

@@ -8,7 +8,9 @@ Type=simple
 User=tiktok
 Group=tiktok
 WorkingDirectory=/opt/tiktok-machine
-ExecStart=/opt/tiktok-machine/venv/bin/python scripts/upload_orchestrator.py
+# Unified orchestrator (uses video_processor / uploader / check_burns /
+# ai_growth / generate_report / reconcile_metrics internally).
+ExecStart=/opt/tiktok-machine/venv/bin/python scripts/orchestrator.py
 Restart=always
 RestartSec=60
 StandardOutput=journal

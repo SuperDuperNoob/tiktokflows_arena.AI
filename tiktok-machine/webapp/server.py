@@ -112,6 +112,9 @@ async def get_status():
     # Cookie status
     cookie_status = get_cookie_status()
 
+    # Drive cleanup (minimal: pending deletes + how many were cleaned today)
+    drive_cleanup = get_drive_cleanup_status()
+
     return {
         "posted_today": posted_today,
         "daily_target": target,
@@ -121,6 +124,7 @@ async def get_status():
         "recent_posts": recent_posts,
         "performance": perf,
         "cookie_status": cookie_status,
+        "drive_cleanup": drive_cleanup,
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
 
@@ -396,6 +400,108 @@ async def get_qr_image(path: str = Query(...)):
     return FileResponse(path, media_type="image/png")
 
 
+# ── Reports & queue (Phase 3 additions) ─────────────────────────────────
+
+def _read_report(path: Path) -> str | None:
+    try:
+        return path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return None
+    except OSError:
+        return None
+
+
+@app.get("/api/growth-report")
+async def growth_report():
+    """Cached growth analysis from ai_growth.py (growth_report.txt)."""
+    import lib as _lib
+    text = _read_report(_lib.growth_report())
+    return {"exists": text is not None, "report": text or "(no growth report yet - run ai_growth.py --ai)"}
+
+
+@app.get("/api/ops-report")
+async def ops_report():
+    """Daily OPS report from generate_report.py (daily_report.txt)."""
+    import lib as _lib
+    text = _read_report(_lib.daily_report())
+    return {"exists": text is not None, "report": text or "(no ops report yet - run generate_report.py)"}
+
+
+@app.get("/api/queue-status")
+async def queue_status():
+    """Upload queue: rendered videos with their sidecar metadata."""
+    import lib as _lib
+    from sidecar_manager import SidecarManager
+    manager = SidecarManager(_lib.queue_dir())
+    items = []
+    for mp4, _primary, meta in manager.find():
+        items.append({
+            "filename": mp4.name,
+            "product_folder": meta.get("product_folder", ""),
+            "product_id": meta.get("product_id", ""),
+            "title": meta.get("title", ""),
+            "size_mb": meta.get("file_size_mb"),
+            "style": meta.get("style_name"),
+            "processed_at": meta.get("processed_at"),
+        })
+    return {"count": len(items), "items": items}
+
+
+@app.get("/api/analytics")
+async def analytics(days: int = 7):
+    """Chart data from the analytics schema (views over time, by product).
+
+    Reads the same logs/tiktok.db analytics tables that reconcile_metrics,
+    ai_growth and generate_report use. Returns empty series on a fresh install
+    so the frontend can show "no data yet" instead of erroring.
+    """
+    import lib as _lib
+    conn = _lib.get_conn()
+    _lib.ensure_schema(conn)
+    since = (_lib.local_today() - timedelta(days=days)).isoformat()
+
+    views_by_day = [dict(r) for r in conn.execute(
+        """SELECT snap_date, SUM(views) AS views
+           FROM daily_metrics WHERE snap_date >= ?
+           GROUP BY snap_date ORDER BY snap_date""", (since,))]
+
+    # Net-new views per day (difference from the previous snapshot total).
+    deltas = []
+    prev = 0
+    for row in views_by_day:
+        cur = int(row["views"] or 0)
+        deltas.append({"date": row["snap_date"], "views": max(0, cur - prev)})
+        prev = cur
+
+    product_views = [dict(r) for r in conn.execute(
+        """WITH latest AS (
+               SELECT video_id, views,
+                      ROW_NUMBER() OVER (PARTITION BY video_id
+                                         ORDER BY snap_date DESC) AS rn
+               FROM daily_metrics WHERE snap_date >= ?
+           )
+           SELECT COALESCE(NULLIF(v.product_folder,''),'(unassigned)') AS product,
+                  CAST(SUM(l.views) AS INTEGER) AS views
+           FROM latest l JOIN videos v ON v.video_id = l.video_id
+           WHERE l.rn = 1
+           GROUP BY product_folder ORDER BY views DESC""", (since,))]
+
+    posts_by_day = [dict(r) for r in conn.execute(
+        """SELECT substr(posted_at,1,10) AS day, COUNT(*) AS n
+           FROM videos WHERE posted_at >= ?
+           GROUP BY day ORDER BY day""", (since,))]
+    conn.close()
+
+    return {
+        "views_by_day": views_by_day,
+        "views_delta_by_day": deltas,
+        "product_views": product_views,
+        "posts_by_day": posts_by_day,
+        "days": days,
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+
 # ── Helpers ──────────────────────────────────────────────────────────────
 
 def load_config() -> dict:
@@ -414,6 +520,30 @@ def mask_secret(value: str) -> str:
     if not value or len(value) < 8:
         return "***"
     return value[:4] + "..." + value[-4:]
+
+
+def get_drive_cleanup_status() -> dict:
+    """Minimal Drive-cleanup indicator: raws deleted from Drive today + pending.
+
+    'pending' = consumed raws whose Drive copy hasn't been deleted yet (will be
+    retried by sync_out). 'deleted_today' = lines in drive_cleanup.log stamped
+    on today's date (business timezone MYT).
+    """
+    try:
+        import lib as _lib
+        # Pending deletes (consumed but not yet removed from Drive).
+        pending = len(_lib.consumed_pending_cleanup())
+        # Cleaned today from the audit log.
+        today = _lib.local_today().isoformat()
+        deleted_today = 0
+        cl = _lib.drive_cleanup_log()
+        if cl.exists():
+            for line in cl.read_text(encoding="utf-8", errors="ignore").splitlines():
+                if line.startswith(today):
+                    deleted_today += 1
+        return {"pending": pending, "deleted_today": deleted_today}
+    except Exception:
+        return {"pending": 0, "deleted_today": 0}
 
 def get_cookie_status() -> dict:
     session_user = CONFIG.get("tiktok", {}).get("session_username", "myshop")
