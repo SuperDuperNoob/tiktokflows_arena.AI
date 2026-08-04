@@ -137,7 +137,7 @@ python3 -c "import sys; sys.path.insert(0,'scripts'); from sync_out import SyncO
 
 ---
 
-## 5. The full anti-duplicate loop (why both settings matter)
+## 5. The full anti-duplicate loop (DB is the truth; the delete is cleanup)
 
 ```
 Google Drive  gdrive:TikTokContent
@@ -145,27 +145,29 @@ Google Drive  gdrive:TikTokContent
    │  │ sync_in  (rclone copy, pull NEW only)
    ▼  │
 content/raw/<Product>/  ──burn──▶  content/processed/<Product>/  (archive)
-   │                                  + logs/deleted.log  ("Biocho/clip_001.mp4")
+   │                                  + raw_stock.posted_at SET  (the truth)
    │
-   │ sync_out (rclone deletefile via deleted.log)
+   │ sync_out (reads the DB, rclone deletefile)
    └────────  removes gdrive:TikTokContent/Biocho/clip_001.mp4 on Drive
 ```
 
 1. **sync_in** pulls every raw it hasn't seen (rclone `copy`, never deletes
    locally, excludes archives/logs).
-2. After a video is posted, its source is archived to `content/processed/` and
-   its relative path is appended to `logs/deleted.log`.
-3. **sync_out** reads `deleted.log` and runs
-   `rclone deletefile gdrive:TikTokContent/Biocho/clip_001.mp4` — deleting the
-   **remote** copy. Successes move to `logs/deleted_history.log`; failures stay
-   in `deleted.log` to be retried next run.
-4. Because the posted raw no longer exists on Drive, the next sync_in can't pull
-   it back → the same video is never uploaded twice.
+2. After a video is burned + archived, `video_processor` records it in the DB
+   ledger (`raw_stock.posted_at`) — **this is what makes it "done"**. From then
+   on it is excluded from stock counts and the selector.
+3. **sync_out** reads the DB for consumed raws whose Drive copy isn't deleted
+   yet and runs `rclone deletefile gdrive:TikTokContent/Biocho/clip_001.mp4`.
+   Successes are marked `drive_cleaned_at`; failures are retried next run.
+4. Because "posted" lives in the DB, the raw is **never re-selected even if a
+   delete fails** → no duplicate upload. The Drive delete is just the satisfying
+   cleanup that empties your Drive.
 
 **Both settings are what make step 3 target the right folder.** If `remote_path`
-is wrong (e.g. empty when your files live under `TikTokContent/`), sync_out
-would look in the wrong place and never delete anything → the raw would get
-re-synced and re-uploaded.
+is wrong, sync_out looks in the wrong place and never deletes → the raw stays on
+Drive (and your Drive won't empty). It still won't be re-posted, because the DB
+ledger already says it's done — but your Drive won't shrink, so fix `remote_path`
+to get the emptying effect.
 
 ---
 
@@ -177,5 +179,6 @@ re-synced and re-uploaded.
 | `gdrive::...` in logs | You had a stale config; `rclone_remote` is now stripped of its trailing colon automatically — update any copy of config.yaml. |
 | `deletefile` does nothing / "file not found" | `remote_path` doesn't match where the raws actually are. Check `rclone lsd gdrive:TikTokContent`. |
 | sync_in pulls nothing | Wrong `remote_path`, or the Drive folder has no product folders, or folders don't match `product_id.txt`. |
-| Videos re-uploaded after posting | sync_out isn't deleting them remotely — confirm sync_out ran after upload (see orchestrator logs) and that `deletefile` succeeds. |
+| Drive isn't emptying after posts | sync_out isn't deleting — confirm it ran after upload, that the rclone scope permits delete, and that `remote_path` is correct. (This only affects cleanup, **not** dedup — the DB ledger prevents re-posts regardless.) |
+| Videos re-uploaded after posting | Should be impossible now: the DB ledger marks the raw consumed, so the selector excludes it even if the Drive delete failed. Check `logs/tiktok.db` → `raw_stock.posted_at` for the raw. |
 | Permission errors deleting | The rclone remote's scope doesn't allow delete (used `drive.readonly`). Reconfigure with `drive` scope. |

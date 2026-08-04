@@ -1,90 +1,85 @@
 """
-Sync-out / anti-duplicate tests.
+Sync-out / anti-duplicate tests (DB-ledger design).
 
-Verifies the deleted.log -> remote-deletion logic that stops a posted raw from
-being re-downloaded/re-uploaded on the next sync_in. rclone is mocked.
+"Already posted" is recorded in SQLite (raw_stock.posted_at). sync_out reads
+the DB and deletes the Drive copy as COSMETIC cleanup. A failed delete is safe
+— the raw is still excluded from selection, so it can never be re-uploaded.
+rclone is mocked.
 """
-from pathlib import Path
-
 import lib
 from sync_drive import DriveSyncer
 from sync_out import SyncOut
 
 
-def test_deleted_log_entries_deleted_remotely_and_archived(monkeypatch):
-    # Seed a deleted.log the way video_processor writes it.
-    dlog = lib.deleted_log()
-    dlog.parent.mkdir(parents=True, exist_ok=True)
-    dlog.write_text("Biocho/foo.mp4\nTeh_v1/bar.MOV\n", encoding="utf-8")
+def _consume(product, filename, file_hash="abc123"):
+    lib.mark_raw_consumed(product, filename, file_hash=file_hash)
 
-    deleted_calls = []
-    fake_db = object()
+
+def test_delete_remote_deletes_consumed_and_marks_cleaned(monkeypatch):
+    _consume("Biocho", "foo.mp4")
+    _consume("Teh_v1", "bar.MOV")
+
+    delete_calls = []
 
     def fake_rclone(self, args, timeout=600):
-        deleted_calls.append(args)
+        if args and args[0] == "deletefile":
+            delete_calls.append(args[1])
         return True, "ok"
 
     monkeypatch.setattr(SyncOut, "_rclone", fake_rclone)
-    monkeypatch.setattr("sync_out.Database", lambda *a, **k: fake_db)
-
     s = SyncOut({"google_drive": {"rclone_remote": "gdrive:", "remote_path": "TikTokContent"}})
-    result = s._delete_remote_processed()
 
-    assert result == 2
-    # Two deletefile calls, targeting the remote path.
-    delete_calls = [a for a in deleted_calls if a[0] == "deletefile"]
-    assert len(delete_calls) == 2
-    remote_paths = {a[1] for a in delete_calls}
-    assert "gdrive:TikTokContent/Biocho/foo.mp4" in remote_paths
-    assert "gdrive:TikTokContent/Teh_v1/bar.MOV" in remote_paths
+    assert s._delete_remote() == 2
+    assert set(delete_calls) == {
+        "gdrive:TikTokContent/Biocho/foo.mp4",
+        "gdrive:TikTokContent/Teh_v1/bar.MOV",
+    }
 
-    # deleted.log is now empty (cleared after successful delete).
-    assert dlog.read_text(encoding="utf-8").strip() == ""
-    # Entries were archived to deleted_history.log.
-    hist = dlog.with_name("deleted_history.log")
-    hist_txt = hist.read_text(encoding="utf-8")
-    assert "Biocho/foo.mp4" in hist_txt
-    assert "Teh_v1/bar.MOV" in hist_txt
+    # Both marked cleaned -> no longer pending.
+    assert lib.consumed_pending_cleanup() == []
 
 
-def test_failed_delete_keeps_entry_for_retry(monkeypatch):
-    dlog = lib.deleted_log()
-    dlog.parent.mkdir(parents=True, exist_ok=True)
-    dlog.write_text("Biocho/foo.mp4\n", encoding="utf-8")
+def test_failed_delete_keeps_pending_and_does_not_duplicate(monkeypatch):
+    _consume("Biocho", "foo.mp4")
 
     def fake_rclone(self, args, timeout=600):
         return False, "remote gone or error"
 
     monkeypatch.setattr(SyncOut, "_rclone", fake_rclone)
-    monkeypatch.setattr("sync_out.Database", lambda *a, **k: object())
+    s = SyncOut({"google_drive": {"rclone_remote": "gdrive:", "remote_path": "TikTokContent"}})
 
-    s = SyncOut({"google_drive": {"rclone_remote": "gdrive:", "remote_path": ""}})
-    result = s._delete_remote_processed()
+    assert s._delete_remote() == 0
+    # Still pending -> retried next run. But it is consumed, so the selector
+    # (get_unused_raw_videos) will NOT return it -> no duplicate upload.
+    assert len(lib.consumed_pending_cleanup()) == 1
+    from db import Database
+    db = Database(str(lib.db_path()))
+    unused = db.get_unused_raw_videos("Biocho")
+    assert all(u["filename"] != "foo.mp4" for u in unused)
 
-    assert result == 0  # nothing deleted
-    # Entry kept so next sync_out retries it.
-    assert dlog.read_text(encoding="utf-8").strip() == "Biocho/foo.mp4"
 
-
-def test_empty_deleted_log_does_nothing(monkeypatch):
-    dlog = lib.deleted_log()
-    dlog.parent.mkdir(parents=True, exist_ok=True)
-    dlog.write_text("", encoding="utf-8")
-
+def test_nothing_pending_does_nothing(monkeypatch):
     called = []
     monkeypatch.setattr(SyncOut, "_rclone",
                         lambda self, args, timeout=600: called.append(args) or (True, "ok"))
-    monkeypatch.setattr("sync_out.Database", lambda *a, **k: object())
-
-    s = SyncOut({"google_drive": {}})
-    assert s._delete_remote_processed() == 0
+    s = SyncOut({"google_drive": {"rclone_remote": "gdrive:", "remote_path": "TikTokContent"}})
+    assert s._delete_remote() == 0
     assert called == []
 
 
+def test_consumed_raw_excluded_from_stock_counts():
+    from db import Database
+    db = Database(str(lib.db_path()))
+    db.sync_raw_stock("Biocho", ["a.mp4", "b.mp4"])
+    lib.mark_raw_consumed("Biocho", "a.mp4", "h")
+    counts = db.get_raw_stock_counts()
+    # Only the not-yet-consumed file counts.
+    assert counts.get("Biocho") == 1
+
+
 def test_sync_in_and_sync_out_resolve_same_remote():
-    """The anti-duplicate loop only works if both syncs point at the same Drive
-    folder, regardless of whether rclone_remote is written as 'gdrive:' or
-    'gdrive' (no double-colon bug)."""
+    """Anti-duplicate loop only works if both syncs point at the same Drive
+    folder, regardless of trailing colon."""
     for given in ("gdrive:", "gdrive"):
         sd = DriveSyncer({"rclone_remote": given, "remote_path": "TikTokContent"}, None)
         so = SyncOut({"google_drive": {"rclone_remote": given, "remote_path": "TikTokContent"}})
@@ -94,18 +89,12 @@ def test_sync_in_and_sync_out_resolve_same_remote():
 
 
 def test_sync_runs_all_steps(monkeypatch):
-    # Seed one raw so _copy_processed would normally fire; mock rclone so no
-    # real rclone is invoked.
+    _consume("Biocho", "foo.mp4")
     lib.processed_dir().mkdir(parents=True, exist_ok=True)
     (lib.processed_dir() / "Biocho").mkdir(parents=True, exist_ok=True)
     (lib.processed_dir() / "Biocho" / "foo.mp4").write_bytes(b"x" * 100)
-    dlog = lib.deleted_log()
-    dlog.parent.mkdir(parents=True, exist_ok=True)
-    dlog.write_text("Biocho/foo.mp4\n", encoding="utf-8")
 
     monkeypatch.setattr(SyncOut, "_rclone", lambda self, args, timeout=600: (True, "ok"))
-    monkeypatch.setattr("sync_out.Database", lambda *a, **k: object())
-
     s = SyncOut({"google_drive": {"rclone_remote": "gdrive:", "remote_path": "TC"}})
     result = s.sync()
     assert result["deleted_remote"] == 1

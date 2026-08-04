@@ -166,28 +166,35 @@ python3 scripts/check_burns.py --quarantine    # quality gate (0 bad = exit 0)
 ## 9. How Drive sync avoids uploading the same video twice
 
 `content/raw/` is fed from Google Drive. The pipeline is careful never to
-re-download or re-upload a clip:
+re-download or re-upload a clip. The **source of truth for "already posted" is
+the SQLite DB** (`logs/tiktok.db` → `raw_stock.posted_at`), not a file:
 
 1. **sync in** (`sync_drive.py`) — `rclone copy` pulls **new** raws only, with
    excludes for `processed/**`, `failed/**`, `posted/**`, `tmp/**` and log
    files. It never deletes local files.
 2. **burn + post** (`video_processor.py` → `uploader.py`) — after a successful
-   burn the raw source is moved to `content/processed/<Product>/` and its path
-   is appended to `logs/deleted.log`, e.g. `Biocho/foo.mp4`.
+   burn the raw source is moved to `content/processed/<Product>/` **and recorded
+   in the DB ledger** (`raw_stock.posted_at`). From then on it is excluded from
+   stock counts and the selector, so it can never be picked again.
 3. **sync out** (`sync_out.py`) — runs right after a successful upload:
    - copies `success.log` / `failed.log` / `burn_log.jsonl` / reports back to
      Drive (small files),
    - copies the `content/processed/` archive up to `Drive/processed/` (backup),
-   - reads `deleted.log` and runs `rclone deletefile` on each **remote** raw
-     (`gdrive:TikTokContent/Biocho/foo.mp4`). Successes go to
-     `logs/deleted_history.log`; failures are kept to retry next run.
-4. Next sync-in sees the posted raw is **gone from Drive**, so it is never
-   pulled back down and never uploaded again.
+   - reads the **DB** for consumed raws whose Drive copy isn't deleted yet and
+     runs `rclone deletefile` on each **remote** raw
+     (`gdrive:TikTokContent/Biocho/foo.mp4`). Successes are marked
+     `drive_cleaned_at`; failures are retried next run. Deletions are also
+     logged to `logs/drive_cleanup.log` for review.
+4. Because "posted" lives in the DB, **a failed Drive delete can never cause a
+   duplicate upload** — the raw is already excluded from selection. The Drive
+   delete is the satisfying cleanup that empties your Drive, not the dedup
+   mechanism.
 
 > If you ever reset the local `content/` folder, the mapping in `products.json`
 > and `product_id.txt` is unaffected — those are source-of-truth files kept in
-> the repo. Only `deleted.log` and `deleted_history.log` track what has already
-> been posted remotely.
+> the repo. The "already posted" state lives in `logs/tiktok.db`
+> (`raw_stock.posted_at`), so keep that DB if you want to preserve history.
+> `deleted.log` / `drive_cleanup.log` are human-readable audits only.
 >
 > **To set up the `google_drive` config (rclone remote + folder) so sync_in and
 > sync_out know where your product folders live on Drive, see
@@ -209,8 +216,9 @@ python3 scripts/orchestrator.py                # or via systemd
 | Sidecars (`.json` / `.pid`) | next to the rendered mp4 |
 | Archived source | `content/processed/<Product>/` |
 | Quarantined broken burns | `content/failed/` |
-| Archived-source log | `logs/deleted.log` (processed, then archived) |
-| Deleted-remote history | `logs/deleted_history.log` |
+| Archived-source audit | `logs/deleted.log` (review only) |
+| Drive-cleanup audit | `logs/drive_cleanup.log` (review only) |
+| "Already posted" truth | `logs/tiktok.db` → `raw_stock.posted_at` |
 | Upload success log | `logs/success.log` |
 | Upload failure log | `logs/failed.log` |
 | Burn quality log | `logs/burn_log.jsonl` |

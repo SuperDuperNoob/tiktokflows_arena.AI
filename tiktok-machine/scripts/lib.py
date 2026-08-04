@@ -188,6 +188,12 @@ def growth_report() -> Path:
                         default=str(PROJECT_ROOT / "logs" / "growth_report.txt")))
 
 
+def drive_cleanup_log() -> Path:
+    """Audit of remote files deleted by sync_out (review only, not load-bearing)."""
+    return _resolve(cfg("content", "drive_cleanup_log",
+                        default=str(PROJECT_ROOT / "logs" / "drive_cleanup.log")))
+
+
 def daily_report() -> Path:
     return _resolve(cfg("content", "daily_report",
                         default=str(PROJECT_ROOT / "logs" / "daily_report.txt")))
@@ -342,6 +348,86 @@ def get_conn(db_path_: Path | None = None) -> sqlite3.Connection:
     return conn
 
 
+# ------------------------------------------------------------------ ledger ----
+# "Already consumed for a post" is recorded HERE (in SQLite) instead of in a
+# deleted.log file. This is the source of truth for whether a raw video has
+# been posted. The Drive deletefile (sync_out) is then just COSMETIC cleanup —
+# even if it fails, the DB still knows the raw was posted and never re-selects
+# it, so a missed delete can never cause a duplicate upload.
+
+RAW_LEDGER_SCHEMA = """
+CREATE TABLE IF NOT EXISTS raw_stock (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    product_name TEXT NOT NULL,
+    filename TEXT NOT NULL,
+    added_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    last_used DATETIME,
+    use_count INTEGER DEFAULT 0,
+    file_hash TEXT,
+    posted_at TEXT,
+    drive_cleaned_at TEXT,
+    UNIQUE(product_name, filename)
+);
+"""
+
+
+def ensure_ledger(conn: sqlite3.Connection) -> None:
+    """Create raw_stock (with ledger columns) and migrate older tables. Idempotent."""
+    conn.execute(RAW_LEDGER_SCHEMA)
+    cols = {r["name"] for r in conn.execute("PRAGMA table_info(raw_stock)")}
+    if "file_hash" not in cols:
+        conn.execute("ALTER TABLE raw_stock ADD COLUMN file_hash TEXT")
+    if "posted_at" not in cols:
+        conn.execute("ALTER TABLE raw_stock ADD COLUMN posted_at TEXT")
+    if "drive_cleaned_at" not in cols:
+        conn.execute("ALTER TABLE raw_stock ADD COLUMN drive_cleaned_at TEXT")
+    conn.commit()
+
+
+def mark_raw_consumed(product: str, filename: str, file_hash: str | None = None) -> None:
+    """Record that a raw video has been consumed (burned + archived for a post).
+
+    This is the SINGLE place that marks a raw as "done". Once set, no selector
+    will ever pick it again, and sync_out will try to delete it from Drive.
+    Idempotent — safe to call more than once for the same raw.
+    """
+    conn = get_conn()
+    ensure_ledger(conn)
+    conn.execute("INSERT OR IGNORE INTO raw_stock(product_name, filename) VALUES (?, ?)",
+                 (product, filename))
+    conn.execute(
+        "UPDATE raw_stock SET file_hash = COALESCE(?, file_hash), "
+        "posted_at = COALESCE(posted_at, ?) WHERE product_name = ? AND filename = ?",
+        (file_hash, utcnow(), product, filename))
+    conn.commit()
+    conn.close()
+
+
+def consumed_pending_cleanup() -> list[dict]:
+    """Raw raws marked consumed whose Drive copy hasn't been deleted yet.
+
+    These are the deletefile targets for sync_out. Missing a delete is safe:
+    they stay here to be retried, and they're excluded from selection anyway.
+    """
+    conn = get_conn()
+    ensure_ledger(conn)
+    rows = conn.execute(
+        "SELECT product_name, filename FROM raw_stock "
+        "WHERE posted_at IS NOT NULL AND drive_cleaned_at IS NULL").fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def mark_drive_cleaned(product: str, filename: str) -> None:
+    conn = get_conn()
+    ensure_ledger(conn)
+    conn.execute(
+        "UPDATE raw_stock SET drive_cleaned_at = ? WHERE product_name = ? AND filename = ?",
+        (utcnow(), product, filename))
+    conn.commit()
+    conn.close()
+
+
 def ensure_schema(conn: sqlite3.Connection) -> None:
     """Create analytics tables + additive migrations. Idempotent."""
     conn.executescript(SCHEMA)
@@ -353,6 +439,7 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
     sum_cols = {r["name"] for r in conn.execute("PRAGMA table_info(daily_summary)")}
     if "ai_called_at" not in sum_cols:
         conn.execute("ALTER TABLE daily_summary ADD COLUMN ai_called_at TEXT")
+    ensure_ledger(conn)
     conn.commit()
 
 

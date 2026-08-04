@@ -473,15 +473,29 @@ class VideoProcessor:
                            "Check FFMPEG_CRF (<=25) / maxrate.", mb_per_sec,
                            lib.MIN_MB_PER_SEC)
 
-        # Archive raw + deleted.log.
+        # Archive raw locally AND record it in the DB ledger (source of truth).
+        # deleted.log is kept as a human-readable AUDIT ONLY — it is no longer
+        # load-bearing (sync_out now reads the DB, not this file).
         processed_folder = lib.processed_dir() / folder
         processed_folder.mkdir(parents=True, exist_ok=True)
         try:
             dest = processed_folder / input_video.name
             shutil.move(str(input_video), str(dest))
             rel = f"{folder}/{input_video.name}"
-            with open(lib.deleted_log(), "a") as dl:
-                dl.write(rel + "\n")
+            # Audit journal (optional; review only).
+            try:
+                with open(lib.deleted_log(), "a") as dl:
+                    dl.write(rel + "\n")
+            except OSError:
+                pass
+            # DB ledger: mark this raw consumed so it is never re-selected and
+            # sync_out deletes its Drive copy.
+            try:
+                lib.mark_raw_consumed(folder, input_video.name,
+                                      file_hash=md5_file(dest))
+                logger.info("Ledger: marked %s consumed (posted_at set)", rel)
+            except Exception as e:
+                logger.warning("Ledger write failed for %s: %s", rel, e)
         except OSError as e:
             logger.warning("Archive failed: %s", e)
 

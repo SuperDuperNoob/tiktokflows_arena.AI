@@ -132,13 +132,15 @@ analytics:
   rival_handle: "reski.reski700"
 
 # --- Google Drive sync ------------------------------------------------------
-# Anti-duplicate flow (same as tiktokflow_vps):
+# Anti-duplicate flow (DB-as-truth + Drive cleanup):
 #   sync_in (rclone copy)  pulls NEW raws from Drive -> content/raw/
-#   burn                   archives the posted raw locally to content/processed/
-#                          and appends its path to logs/deleted.log
+#   burn                   archives the raw locally AND records it in the DB
+#                          ledger (raw_stock.posted_at) = "already posted"
 #   sync_out               copies logs + processed archive back to Drive, then
-#                          rclone deletefile's the posted raw on Drive via
-#                          deleted.log, so it is never re-downloaded/re-uploaded
+#                          reads the DB and rclone deletefile's the posted raws
+#                          from Drive (cosmetic cleanup; a failed delete can
+#                          never cause a duplicate because the DB already
+#                          excludes the raw from selection)
 google_drive:
   rclone_remote: ""            # e.g. "gdrive:"
   remote_path: ""              # e.g. "TikTokContent" (folder that holds product dirs)

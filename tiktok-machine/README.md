@@ -158,32 +158,40 @@ The core pipeline is a port of the production tiktokflow_vps v4 scripts:
   processed archive back to Drive and deletes already-posted raws remotely via
   `deleted.log`, so the next sync never re-downloads/re-uploads the same video.
 
-### How Drive sync avoids duplicates (same as tiktokflow_vps)
+### How Drive sync avoids duplicates (DB-as-truth + Drive cleanup)
+
+"Already posted" is recorded in **SQLite** (`raw_stock.posted_at`), not a file.
+Deleting the file from Drive is cosmetic cleanup — it gives you the satisfaction
+of watching your Drive empty, but it is **not** what prevents duplicates.
 
 ```
 Google Drive ──sync_in (rclone copy, pull new only)──▶ content/raw/<Product>/
-   │                                                          │ burn
-   │                                                          ▼
-   │                                          content/processed/<Product>/ (archive)
-   │                                              + logs/deleted.log  ("Biocho/foo.mp4")
-   │                                                          │
-   │◀──sync_out (rclone deletefile via deleted.log)─────────────┘
-   └── (posted raw now gone from Drive → never re-pulled)
+   │  ▲                                                     │ burn
+   │  │                                                     ▼
+   │  │                                        content/processed/<Product>/ (archive)
+   │  │                                         + raw_stock.posted_at SET  (the truth)
+   │  │                                                     │
+   │  ◀──sync_out (rclone deletefile from the DB ledger)─────┘
+   └── (posted raw gone from Drive → feels good, and never re-pulled)
 ```
 
 1. **`sync_in`** uses `rclone copy` (not `sync`) with excludes — pulls **new**
    raws only, never deletes local files.
-2. After a video is posted, the raw source is archived locally to
-   `content/processed/<Product>/` and its remote-relative path is appended to
-   `logs/deleted.log`.
+2. After a video is burned + archived, `video_processor` records it in the DB
+   ledger (`mark_raw_consumed`) — **this is what makes it "done"**. It is then
+   excluded from every selector and stock count.
 3. **`sync_out`** runs after a successful upload: it copies logs + the
-   processed archive back to Drive (backup), then reads `deleted.log` and runs
-   `rclone deletefile` on the corresponding **remote** raws. Failed deletes are
-   kept for retry; successes are archived to `deleted_history.log`.
-4. Because the posted raw is gone from Drive, the next `sync_in` cannot pull it
-   back down → the same video is never uploaded twice.
+   processed archive back to Drive (backup), then reads the DB for consumed
+   raws whose Drive copy isn't deleted yet and runs `rclone deletefile` on each.
+4. Because "posted" lives in the DB, **even if a delete fails** the raw is never
+   re-selected → no duplicate upload. Failed deletes stay in the ledger and are
+   retried next run.
 
-This closes the loop that `sync_drive.py` (sync_in) alone left open.
+**Key difference from tiktokflow_vps:** vps coupled "already posted" to a
+`deleted.log` file + a destructive remote delete — a lost file or failed delete
+meant the raw came back and got re-uploaded. Here the delete is pure cleanup;
+the DB is the source of truth. `deleted.log` / `drive_cleanup.log` are kept only
+as human-readable audits.
 
 > **Full setup for the `google_drive` config (rclone remote + folder, rclone
 > install, verification, troubleshooting): [`docs/google_drive_sync_guide.md`](docs/google_drive_sync_guide.md)**
