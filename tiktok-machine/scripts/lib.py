@@ -54,7 +54,13 @@ NON_PRODUCT_DIRS = {
     "burn_output", "test_folder", "logs", "archive", "Books",
     "captions", "sounds", "content",
 }
-VIDEO_EXTS = {".mp4", ".mov", ".mkv", ".avi", ".webm"}
+# Raw video extensions accepted as INPUT (the burner re-encodes to .mp4 output).
+# Covers the most common creator/consumer formats.
+VIDEO_EXTS = {
+    ".mp4", ".m4v", ".mov", ".mkv", ".webm", ".avi",
+    ".flv", ".wmv", ".mpg", ".mpeg", ".m2v",
+    ".ts", ".m2ts", ".3gp", ".ogv",
+}
 
 # Telegram hard-caps a message at 4096 chars.
 TELEGRAM_LIMIT = 3900

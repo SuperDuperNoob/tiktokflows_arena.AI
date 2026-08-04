@@ -92,7 +92,7 @@ class SyncOut:
         proc = lib.processed_dir()
         if not proc.exists():
             return
-        if not any(proc.rglob("*.mp4")):
+        if not any(proc.rglob(f"*{ext}") for ext in lib.VIDEO_EXTS):
             return
         remote = f"{self._remote_root()}/processed/"
         ok, msg = self._rclone(["copy", str(proc), remote,

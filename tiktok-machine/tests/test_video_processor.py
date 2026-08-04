@@ -96,6 +96,32 @@ def test_missing_sidecar_returns_none(tmp_path):
     assert manager.read(mp4) is None
 
 
+def test_video_exits_cover_common_formats():
+    import lib
+    for ext in (".mp4", ".mov", ".mkv", ".webm", ".avi", ".m4v",
+                ".flv", ".wmv", ".mpg", ".mpeg", ".3gp", ".ts", ".ogv"):
+        assert ext in lib.VIDEO_EXTS
+    # The rendered output is always mp4, but raw input accepts many types.
+    assert ".mp4" in lib.VIDEO_EXTS
+
+
+def test_scan_raw_picks_up_multiple_formats(tmp_path):
+    import lib
+    from video_processor import VideoProcessor
+    lib._CFG = None
+    # Place one file of each of a few formats in the raw dir.
+    root = lib.drive_root()
+    root.mkdir(parents=True, exist_ok=True)
+    folder = root / "Biocho"
+    folder.mkdir(parents=True, exist_ok=True)
+    for name in ("a.mp4", "b.mov", "c.webm", "d.mkv"):
+        p = folder / name
+        p.write_bytes(b"x" * 2_000_000)  # >1MB so the size gate accepts it
+    stock = VideoProcessor().scan_raw()
+    assert set(stock["Biocho"]) == {folder / "a.mp4", folder / "b.mov",
+                                    folder / "c.webm", folder / "d.mkv"}
+
+
 def test_generate_caption_is_compliant():
     from caption_policy import scan_caption
     for _ in range(30):

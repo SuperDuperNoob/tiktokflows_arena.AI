@@ -1,7 +1,7 @@
 PLACEHOLDER FOLDER — DELETE ME (or keep, it is harmless).
 
 This is the raw-video folder for product "Stevia_v1".
-Drop your .mp4 / .mov / .mkv / .avi / .webm source clips in here
+Drop your source clips in here (any common format: .mp4, .mov, .mkv, .webm, .avi, ...)
 (1MB–500MB each). The pipeline picks one per run, burns an overlay
 onto it, archives the source to content/processed/<name>/, and
 appends the filename to logs/deleted.log.

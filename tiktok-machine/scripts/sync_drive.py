@@ -167,7 +167,7 @@ class DriveSyncer:
 
     def _list_videos(self, directory: str) -> List[str]:
         """List video files in a directory."""
-        video_extensions = {".mp4", ".mov", ".avi", ".webm", ".mkv", ".m4v"}
+        video_extensions = lib.VIDEO_EXTS
         if not os.path.isdir(directory):
             return []
 

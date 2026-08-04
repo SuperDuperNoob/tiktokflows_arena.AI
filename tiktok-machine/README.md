@@ -83,7 +83,7 @@ tiktok-machine/
 │       ├── product_id.txt       ← Real product IDs + captions/titles (from vps)
 │       ├── preset_text.txt      ← Overlay caption pool (example included)
 │       ├── soundtrack/          ← legacy audio (see sounds/ at root)
-│       └── <Product>/           ← one folder per product; drop raw .mp4 here
+│       └── <Product>/           ← one folder per product; drop raw videos here (mp4/mov/mkv/webm/...) 
 ├── sounds/                      ← Royalty-free audio tracks (drop .mp3 here)
 ── logs/
 │   └── tiktok.db                ← SQLite database
@@ -273,7 +273,8 @@ systemd services and verifies them. To go back, follow `docs/rollback.md`
 
 **Content is the one thing you must supply.** The repo ships an example
 `content/raw/` structure (real product IDs from tiktokflow_vps, an example
-caption pool, per-product folders and placeholders) — you drop raw `.mp4`s into
+caption pool, per-product folders and placeholders) — you drop raw videos (any
+common format: `.mp4`, `.mov`, `.mkv`, `.webm`, `.avi`, ...) into
 each product folder, drop `.mp3`s into `sounds/`, and edit
 `content/raw/product_id.txt` / `preset_text.txt`.
 > **Full step-by-step: [`docs/content_guide.md`](docs/content_guide.md).**

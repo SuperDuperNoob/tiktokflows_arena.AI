@@ -50,7 +50,7 @@ from transform_video import TIKTOK_STYLES, TextRenderer, pick_style
 
 logger = logging.getLogger(__name__)
 
-VIDEO_EXTENSIONS = (".mp4", ".mov", ".mkv", ".avi", ".webm")
+VIDEO_EXTENSIONS = lib.VIDEO_EXTS
 
 # --- Malay market randomisation palette -------------------------------------
 CTA_POOL = [

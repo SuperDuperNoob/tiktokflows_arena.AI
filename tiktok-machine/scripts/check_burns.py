@@ -53,7 +53,9 @@ def scan(folder: Path, quarantine: bool) -> tuple[int, int]:
     if not folder.exists():
         print(f"  (no such directory: {folder})")
         return 0, 0
-    clips = sorted(folder.glob("*.mp4"))
+    clips = sorted(
+        f for ext in lib.VIDEO_EXTS
+        for f in folder.glob(f"*{ext}"))
     if not clips:
         print(f"  queue is empty: {folder}")
         return 0, 0

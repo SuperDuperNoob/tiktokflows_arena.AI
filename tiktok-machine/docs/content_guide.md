@@ -97,7 +97,9 @@ The repo ships a small **example pool** (real vps captions). You can:
 
 Drop your source clips here. Per product, one folder.
 
-- Accepted: `.mp4`, `.mov`, `.mkv`, `.avi`, `.webm`
+- Accepted: `.mp4`, `.m4v`, `.mov`, `.mkv`, `.webm`, `.avi`, `.flv`, `.wmv`,
+  `.mpg`, `.mpeg`, `.m2v`, `.ts`, `.m2ts`, `.3gp`, `.ogv` (any common video
+  format — the burner re-encodes everything to `.mp4` output)
 - Size range the pipeline accepts: **1MB – 500MB**
 - The processor burns ONE video per run from one selected product folder, then
   archives the source to `content/processed/<Product>/`.
@@ -147,7 +149,8 @@ PY
 
 - [ ] `content/raw/product_id.txt` present (yes — ships with real IDs)
 - [ ] `content/raw/preset_text.txt` present (yes — example pool)
-- [ ] At least one `content/raw/<Product>/` folder has a `.mp4` in it
+- [ ] At least one `content/raw/<Product>/` folder has a video in it (`.mp4`,
+      `.mov`, `.mkv`, `.webm`, etc.)
 - [ ] `sounds/` has at least one `.mp3`
 - [ ] `config.yaml` → `apify.token`, `telegram.bot_token/chat_id`, `proxy.endpoint`,
       `ai.api_key` set (copy `config/config.yaml.example` to `config/config.yaml`)
