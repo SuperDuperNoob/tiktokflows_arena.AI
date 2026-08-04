@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TikTok Auto-Posting Machine</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <header>
+        <div class="header-left">
+            <h1>🎵 TikTok Auto-Posting Machine</h1>
+            <span class="subtitle" id="last-updated">Loading...</span>
+        </div>
+        <div class="header-right">
+            <span class="status-dot" id="connection-status"></span>
+            <span id="connection-text">Connecting...</span>
+        </div>
+    </header>
+
+    <nav class="tab-nav">
+        <button class="tab-btn active" data-tab="dashboard">📊 Dashboard</button>
+        <button class="tab-btn" data-tab="posts">📹 Posts</button>
+        <button class="tab-btn" data-tab="captions">💬 Captions</button>
+        <button class="tab-btn" data-tab="products">📦 Products</button>
+        <button class="tab-btn" data-tab="config">️ Config</button>
+        <button class="tab-btn" data-tab="events">📜 Events</button>
+        <button class="tab-btn" data-tab="tools">🔧 Tools</button>
+    </nav>
+
+    <main>
+        <!-- Dashboard Tab -->
+        <section id="tab-dashboard" class="tab-content active">
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <div class="stat-label">Posted Today</div>
+                    <div class="stat-value" id="stat-posted-today">-</div>
+                    <div class="stat-sub" id="stat-target">/ 7</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Total Products</div>
+                    <div class="stat-value" id="stat-products">-</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Total Stock</div>
+                    <div class="stat-value" id="stat-stock">-</div>
+                </div>
+                <div class="stat-card" id="cookie-card">
+                    <div class="stat-label">Cookie Age</div>
+                    <div class="stat-value" id="stat-cookie-age">-</div>
+                    <div class="stat-sub" id="stat-cookie-status">-</div>
+                </div>
+            </div>
+
+            <div class="grid-2col">
+                <div class="card">
+                    <h3>📦 Stock Levels</h3>
+                    <div id="stock-list" class="list-container"></div>
+                </div>
+                <div class="card">
+                    <h3>⏰ Posting Priority</h3>
+                    <div id="priority-list" class="list-container"></div>
+                </div>
+            </div>
+
+            <div class="card">
+                <h3>🕐 Recent Posts</h3>
+                <div id="recent-posts" class="table-container"></div>
+            </div>
+
+            <div class="card">
+                <h3>📜 Recent Events</h3>
+                <div id="recent-events" class="list-container"></div>
+            </div>
+        </section>
+
+        <!-- Posts Tab -->
+        <section id="tab-posts" class="tab-content">
+            <div class="card">
+                <div class="filter-bar">
+                    <select id="post-filter-product">
+                        <option value="">All Products</option>
+                    </select>
+                    <select id="post-filter-status">
+                        <option value="">All Status</option>
+                        <option value="POSTED">✅ Posted</option>
+                        <option value="FAILED">❌ Failed</option>
+                        <option value="PENDING">⏳ Pending</option>
+                    </select>
+                    <button class="btn btn-sm" onclick="loadPosts()"> Refresh</button>
+                </div>
+                <div id="posts-table" class="table-container"></div>
+            </div>
+        </section>
+
+        <!-- Captions Tab -->
+        <section id="tab-captions" class="tab-content">
+            <div class="card">
+                <div class="filter-bar">
+                    <select id="caption-filter-product">
+                        <option value="">All Products</option>
+                    </select>
+                    <button class="btn btn-sm" onclick="loadCaptions()"> Refresh</button>
+                </div>
+                <div class="add-caption-form">
+                    <select id="add-caption-product">
+                        <option value="">Generic (any product)</option>
+                    </select>
+                    <input type="text" id="add-caption-text" placeholder="Enter caption...">
+                    <button class="btn btn-primary" onclick="addCaption()">Add Caption</button>
+                </div>
+                <div id="captions-list" class="list-container"></div>
+            </div>
+        </section>
+
+        <!-- Products Tab -->
+        <section id="tab-products" class="tab-content">
+            <div class="card">
+                <h3>📦 Products</h3>
+                <div id="products-list" class="list-container"></div>
+            </div>
+        </section>
+
+        <!-- Config Tab -->
+        <section id="tab-config" class="tab-content">
+            <div class="card">
+                <h3>️ Configuration</h3>
+                <p class="hint">Click any value to edit. Changes save immediately.</p>
+                <div id="config-sections" class="config-container"></div>
+            </div>
+        </section>
+
+        <!-- Events Tab -->
+        <section id="tab-events" class="tab-content">
+            <div class="card">
+                <div class="filter-bar">
+                    <select id="event-filter-type">
+                        <option value="">All Events</option>
+                        <option value="UPLOAD_SUCCESS">✅ Upload Success</option>
+                        <option value="UPLOAD_FAIL"> Upload Fail</option>
+                        <option value="COOKIE_WARNING">⚠️ Cookie Warning</option>
+                        <option value="STOCK_LOW">⚠️ Low Stock</option>
+                        <option value="PROXY_FAIL"> Proxy Fail</option>
+                        <option value="AI_CALL">🤖 AI Call</option>
+                        <option value="SCRAPE_COMPLETE"> Scrape Complete</option>
+                    </select>
+                    <button class="btn btn-sm" onclick="loadEvents()">🔄 Refresh</button>
+                </div>
+                <div id="events-list" class="list-container"></div>
+            </div>
+        </section>
+
+        <!-- Tools Tab -->
+        <section id="tab-tools" class="tab-content">
+            <div class="grid-2col">
+                <div class="card">
+                    <h3>🔗 Proxy Test</h3>
+                    <p class="hint">Verify your proxy exit IP is Malaysian residential</p>
+                    <button class="btn btn-primary" onclick="testProxy()">Test Proxy</button>
+                    <div id="proxy-result" class="result-box"></div>
+                </div>
+                <div class="card">
+                    <h3>🔄 Sync Drive</h3>
+                    <p class="hint">Manually trigger Google Drive sync</p>
+                    <button class="btn btn-primary" onclick="triggerSync()">Sync Now</button>
+                    <div id="sync-result" class="result-box"></div>
+                </div>
+            </div>
+            <div class="card">
+                <h3>🍪 Cookie Status</h3>
+                <div id="cookie-detail" class="result-box"></div>
+            </div>
+            <div class="card">
+                <h3> QR Code Re-login</h3>
+                <p class="hint">Generate QR code to refresh TikTok cookies. Scan with TikTok app.</p>
+                <button class="btn btn-primary" onclick="triggerRelogin()">Generate QR Code</button>
+                <div id="relogin-result" class="result-box"></div>
+                <div id="qr-image-container" style="margin-top: 16px; text-align: center;"></div>
+            </div>
+        </section>
+    </main>
+
+    <footer>
+        <span>TikTok Auto-Posting Machine</span>
+        <span id="refresh-timer">Auto-refresh: 30s</span>
+    </footer>
+
+    <script src="/static/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,30 @@
+[Unit]
+Description=TikTok Auto Posting Machine — Main Orchestrator
+After=network.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=tiktok
+Group=tiktok
+WorkingDirectory=/opt/tiktok-machine
+ExecStart=/opt/tiktok-machine/venv/bin/python scripts/upload_orchestrator.py
+Restart=always
+RestartSec=60
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=tiktok-machine
+
+# Security hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/tiktok-machine
+PrivateTmp=true
+
+# Environment
+Environment=PYTHONUNBUFFERED=1
+Environment=HOME=/opt/tiktok-machine
+
+[Install]
+WantedBy=multi-user.target

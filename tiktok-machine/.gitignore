@@ -1,0 +1,38 @@
+# TikTok Auto-Posting Machine — Git Ignore
+
+# Secrets / credentials
+config/config.yaml
+*.cookie
+*.key
+.env
+
+# Database
+logs/tiktok.db
+logs/*.db-journal
+logs/*.db-wal
+
+# Content (videos are large)
+content/raw/**/*.mp4
+content/raw/**/*.mov
+content/raw/**/*.webm
+content/processed/
+content/posted/
+
+# Audio files (too large for GitHub)
+sounds/*.mp3
+sounds/*.wav
+sounds/*.ogg
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+venv/
+.venv/
+
+# Node
+node_modules/
+
+# OS
+.DS_Store
+Thumbs.db

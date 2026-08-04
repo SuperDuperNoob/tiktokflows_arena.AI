@@ -1,0 +1,45 @@
+# =============================================================================
+# TikTok Auto-Posting Machine — Python Dependencies
+# =============================================================================
+# Install in a virtualenv: pip install -r requirements.txt
+# =============================================================================
+
+# Configuration
+PyYAML>=6.0
+
+# HTTP clients
+httpx>=0.27
+requests>=2.31
+
+# Telegram bot
+python-telegram-bot>=21.0
+
+# Utilities
+python-dotenv>=1.0
+
+# Web interface (FastAPI + Uvicorn)
+fastapi>=0.110
+uvicorn[standard]>=0.27
+pydantic>=2.6
+python-multipart>=0.0.9
+
+# Text rendering for video overlays (emoji-capable)
+# Skia is preferred (low RAM ~30MB). Install skia-python:
+#   pip install skia-python
+# If unavailable, falls back to Playwright (~400MB RAM):
+#   pip install playwright
+#   playwright install chromium
+skia-python>=105.0
+
+# The TiktokAutoUploader has its own requirements (in its own venv or system).
+# Key ones we share:
+beautifulsoup4>=4.12
+fake-useragent>=1.4
+requests-auth-aws-sigv4>=0.7
+
+# Note: TiktokAutoUploader also needs:
+#   - selenium, undetected-chromedriver (for login only)
+#   - moviepy, yt-dlp (for video handling)
+#   - fastapi, uvicorn, sqlmodel (for API mode — optional)
+#   - Node.js + playwright-chromium (for signature generation)
+# These are installed separately in the TiktokAutoUploader directory.
