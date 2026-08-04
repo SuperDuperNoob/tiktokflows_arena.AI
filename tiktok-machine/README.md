@@ -155,6 +155,14 @@ The core pipeline is a port of the production tiktokflow_vps v4 scripts:
   per calendar day (MYT). Writes only `growth_report.txt`.
 - **`generate_report.py`** / **`reconcile_metrics.py`** — ported OPS report and
   analytics reconciliation.
+- **`competitor_scraper.py`** — uses the battle-tested Apify actor
+  `clockworks/tiktok-scraper` (same actor tiktokflow_vps ran in production).
+  It writes per-post data into the `competitor_videos`/`competitor_daily`
+  analytics tables that `/growth`, `reconcile_metrics` and the OPS report read,
+  plus the legacy `competitor_data` table for the dashboard.
+
+**Configuration:** copy `config/config.yaml.example` to `config/config.yaml`
+(the live file is git-ignored because it holds secrets).
 
 ### Battle-tested lessons (from tiktokflow_vps)
 
