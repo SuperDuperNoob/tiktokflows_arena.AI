@@ -13,6 +13,7 @@ import sys
 import time
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
+from typing import Optional
 
 import yaml
 
@@ -52,7 +53,22 @@ MYT = timezone(MYT_OFFSET)
 class Orchestrator:
     """Autonomous scheduler for the unified TikTok posting pipeline."""
 
-    def __init__(self, config_path: str):
+    def __init__(
+        self,
+        config_path: str,
+        upload_service: Optional["UploadService"] = None,
+        video_service: Optional["VideoService"] = None,
+        storage_service: Optional["StorageService"] = None,
+        compliance_service: Optional["ComplianceService"] = None,
+        caption_service: Optional["CaptionService"] = None,
+        analytics_service: Optional["AnalyticsService"] = None,
+        scheduler_service: Optional["SchedulerService"] = None,
+        notification_service: Optional["NotificationService"] = None,
+        product_service: Optional["ProductService"] = None,
+        proxy_service: Optional["ProxyService"] = None,
+        ai_service: Optional["AIService"] = None,
+        auth_service: Optional["AuthService"] = None,
+    ):
         self.config_path = config_path
         with open(config_path, "r", encoding="utf-8") as f:
             self.config = yaml.safe_load(f)
@@ -64,28 +80,34 @@ class Orchestrator:
         from config import Config
         Config.reset_instance()
         cfg = Config.get_instance(Path(config_path))
-        
+
         db_path = cfg.get("logging", "db_path", default="logs/tiktok.db")
         if not os.path.isabs(db_path):
             db_path = os.path.join(self.project_root, db_path)
-        
+
         # Initialize repositories
         from services.repositories import Database
         self.db = Database(db_path)
 
-        # Initialize services
-        self.upload_service = UploadService()
-        self.video_service = VideoService()
-        self.storage_service = StorageService()
-        self.compliance_service = ComplianceService()
-        self.caption_service = CaptionService()
-        self.analytics_service = AnalyticsService()
-        self.scheduler_service = SchedulerService()
-        self.notification_service = NotificationService()
-        self.product_service = ProductService()
-        self.proxy_service = ProxyService()
-        self.ai_service = AIService()
-        self.auth_service = AuthService()
+        # Initialize services (inject or create defaults)
+        from services.core import (
+            UploadService, VideoService, StorageService, ComplianceService,
+            CaptionService, AnalyticsService, SchedulerService,
+            NotificationService, ProductService, ProxyService,
+            AIService, AuthService,
+        )
+        self.upload_service = upload_service or UploadService()
+        self.video_service = video_service or VideoService()
+        self.storage_service = storage_service or StorageService()
+        self.compliance_service = compliance_service or ComplianceService()
+        self.caption_service = caption_service or CaptionService()
+        self.analytics_service = analytics_service or AnalyticsService()
+        self.scheduler_service = scheduler_service or SchedulerService()
+        self.notification_service = notification_service or NotificationService()
+        self.product_service = product_service or ProductService()
+        self.proxy_service = proxy_service or ProxyService()
+        self.ai_service = ai_service or AIService()
+        self.auth_service = auth_service or AuthService()
 
         # State the Telegram bot drives.
         self.paused = False
@@ -141,20 +163,21 @@ class Orchestrator:
 
         # Quality gate
         try:
-            from scripts.check_burns import scan as scan_burns
             from services.config import get_config
             cfg = get_config()
             queue_dir = Path(cfg.get("content", "processed_dir", "content/processed"))
             queue_dir.mkdir(parents=True, exist_ok=True)
-            scan_burns(queue_dir, quarantine=True)
+            self.video_service.quality_gate(queue_dir, quarantine=True)
         except Exception as e:
             logger.warning("Quality gate failed (continuing): %s", e)
 
         # Render one video + write sidecars
         try:
-            from scripts.video_processor import VideoProcessor
-            proc = VideoProcessor(self.config)
-            proc.run()
+            rc = self.video_service.run()
+            if rc != 0:
+                logger.error("Video render failed with code %s", rc)
+                self.notification_service.notify_warning("render", f"Video render failed with code {rc}")
+                return
         except Exception as e:
             logger.error("Video render failed: %s", e)
             self.notification_service.notify_warning("render", f"Video render failed: {e}")
@@ -162,9 +185,8 @@ class Orchestrator:
 
         # Upload one queued video
         try:
-            from scripts.uploader import Uploader
-            up = Uploader(self.config)
-            rc = up.upload()
+            upload_result = self.upload_service.process_upload_queue()
+            rc = 0 if upload_result.success else 1
         except Exception as e:
             logger.error("Uploader failed: %s", e)
             self.notification_service.notify_warning("upload", f"Uploader error: {e}")
@@ -182,8 +204,9 @@ class Orchestrator:
                 "video", caption, stock_report or {}, posted_today, target)
             # Sync out
             try:
-                from scripts.sync_out import SyncOut
-                SyncOut(self.config).sync()
+                sync_ok, _ = self.storage_service.sync_to_drive()
+                if not sync_ok:
+                    logger.warning("sync_out failed (retries next cycle)")
             except Exception as e:
                 logger.warning("sync_out failed (retries next cycle): %s", e)
         else:
@@ -204,31 +227,11 @@ class Orchestrator:
         logger.info("Running daily jobs at %s MYT", now.strftime("%H:%M"))
         self._last_scrape_date = today
 
+        # Use AnalyticsService for daily jobs
         try:
-            from scripts.competitor_scraper import CompetitorScraper
-            scraper = CompetitorScraper(self.config.get("apify", {}), self.db)
-            summary = scraper.scrape_all()
-            logger.info("Scrape complete: %s", summary)
+            self.analytics_service.run_daily_jobs(self.db, self.config)
         except Exception as e:
-            logger.error("Daily scrape failed: %s", e)
-
-        try:
-            from scripts.reconcile_metrics import reconcile
-            import lib
-            conn = lib.get_conn()
-            lib.ensure_schema(conn)
-            stats = reconcile(conn, verbose=False)
-            logger.info("Reconcile: %s", stats)
-            conn.close()
-        except Exception as e:
-            logger.error("Reconcile failed: %s", e)
-
-        try:
-            from scripts.generate_report import build as build_report
-            report = build_report(days=3)
-            # Send via notification service
-        except Exception as e:
-            logger.error("Report failed: %s", e)
+            logger.error("Daily jobs failed: %s", e)
 
 
 def main():
