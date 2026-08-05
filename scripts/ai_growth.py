@@ -535,3 +535,54 @@ def main() -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
+
+
+# =============================================================================
+# Telegram Bot Compatible Interface
+# =============================================================================
+
+class AIGrowthEngine:
+    """AI Growth Engine with cached daily budget - compatible with telegram_bot interface."""
+    
+    def __init__(self, config: dict, db: Database):
+        self.config = config
+        self.db = db
+        self.ai_config = config.get("ai", {})
+    
+    def generate_captions(self, product_name: str, product_config: dict) -> list[str]:
+        """Generate captions for a product using cached AI."""
+        conn = lib.get_conn()
+        lib.ensure_schema(conn)
+        a = analyze(conn, days=7)
+        conn.close()
+        
+        # Use cached AI if available and requested
+        ai = resolve_recommendation(
+            lib.get_conn(), a, want_ai=True
+        )
+        
+        # Filter captions for this product (ai_growth generates for all products)
+        # For now, return all new captions - they'll be filtered by the caller
+        return ai.get("new_captions", [])
+    
+    def generate_strategy(self, products_config: dict) -> str | None:
+        """Generate strategy report using cached AI."""
+        conn = lib.get_conn()
+        lib.ensure_schema(conn)
+        a = analyze(conn, days=7)
+        conn.close()
+        
+        ai = resolve_recommendation(
+            lib.get_conn(), a, want_ai=True
+        )
+        
+        if ai.get("_fallback"):
+            return ai.get("analysis")
+        
+        # Build strategy report from AI response
+        lines = [f"## Growth Strategy for @{lib.OWN_HANDLE}"]
+        lines.append(f"**Analysis**: {ai.get('analysis', '')}")
+        lines.append(f"**Recommended Product**: {ai.get('recommend_product', '')}")
+        lines.append(f"**Recommended Sound**: {ai.get('recommend_sound', '')}")
+        lines.append(f"**Recommended Hashtag**: {ai.get('recommend_hashtag', '')}")
+        return "\n".join(lines)

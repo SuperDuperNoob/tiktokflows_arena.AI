@@ -171,6 +171,70 @@ class ComplianceEngine:
         return ok, final, issues
 
     def batch_check(self, captions: List[str]) -> List[dict]:
+        """Check multiple captions efficiently. Falls back to individual if no AI."""
+        if not self._ai_available() or not captions:
+            results = []
+            for cap in captions:
+                final, ok, issues = self.process_caption(cap)
+                results.append({"original": cap, "final_text": final,
+                                "is_compliant": ok, "issues": issues})
+            return results
+
+        # Batch AI call for efficiency
+        try:
+            import requests
+            system = (
+                "You are a TikTok Shop Malaysia compliance officer. Review "
+                "Bahasa Malaysia video captions. Reject medical claims, ringgit "
+                "prices, unverifiable superlatives and guaranteed results, "
+                "including obfuscated spellings (u.b.a.t, ub4t, muraahh). "
+                'Reply with ONLY a JSON array: [{"is_compliant": bool, '
+                '"violations": ["..."], "rewritten_caption": "..."}, ...]'
+            )
+            lines = [f"Analyze these {len(captions)} captions for TikTok Shop Malaysia compliance."]
+            for i, cap in enumerate(captions):
+                lines.append(f"Caption {i+1}: \"{cap}\"")
+            prompt = "\n".join(lines)
+
+            resp = requests.post(
+                f"{self.ai_base_url}/chat/completions",
+                headers={"Authorization": f"Bearer {self.ai_api_key}",
+                         "Content-Type": "application/json"},
+                json={"model": self.ai_model,
+                      "messages": [{"role": "system", "content": system},
+                                   {"role": "user", "content": prompt}],
+                      "temperature": 0.0, "max_tokens": 300 * len(captions)},
+                timeout=self.ai_timeout)
+            if resp.status_code != 200:
+                logger.warning("Batch AI compliance HTTP %s", resp.status_code)
+                return self._batch_check_fallback(captions)
+
+            raw = resp.json()["choices"][0]["message"]["content"]
+            import json, re
+            start, end = raw.find("["), raw.rfind("]")
+            if start == -1 or end <= start:
+                return self._batch_check_fallback(captions)
+            data = json.loads(raw[start:end + 1])
+
+            results = []
+            for i, cap in enumerate(captions):
+                if i < len(data) and isinstance(data[i], dict):
+                    item = data[i]
+                    rewritten = item.get("rewritten_caption", cap)
+                    # Re-gate rewrite through regex layer
+                    if rewritten != cap:
+                        r2 = scan_caption(rewritten)
+                        if not r2["needs_rewrite"]:
+                            cap = rewritten.strip()
+                    final, ok, issues = self.process_caption(cap)
+                    results.append({"original": cap, "final_text": final,
+                                    "is_compliant": ok, "issues": issues})
+            return results
+        except Exception as e:
+            logger.warning("Batch AI compliance failed: %s", e)
+            return self._batch_check_fallback(captions)
+
+    def _batch_check_fallback(self, captions: List[str]) -> List[dict]:
         results = []
         for cap in captions:
             final, ok, issues = self.process_caption(cap)

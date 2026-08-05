@@ -1,17 +1,2 @@
-//This is product id and product caption based on folder name, product caption will rotate between / for each new upload - max 3 words per phrase for TikTok anchor
-//Format: folder | product_id | caption1 / caption2 / caption3 | title1 / title2 / title3
-//2025-08-03: cleaned for TikTok policy - no medical claims, max 3 words/phrase, soft hedges mungkin/agak/sedikit
-
-Bidara_Syifa | 1730806349350209087 | aroma agak tenang / rasa selesa sedikit / aroma segar mungkin | rasa agak tenang / bidara syifaa sini / aroma harian segar
-Biocho | 1729426735260010630 | minyak zaitun rambut / rambut agak lebat / rambut sihat mungkin | Minyak Biocho / Rambut Zaitun / Grab sini
-Centella | 1734380257635108125 | jaga kulit muka / kulit agak glowing / muka cerah sedikit | Centella Barrier / beli sini / grab sekarang
-Earphone_Tranyoo_v1 | 1732611278841480913 | earphone gaming padu / earphone gaming best / sound agak padu | Earphone Premium / Beli sekarang / grab sini
-elegance_v1 | 1729529247525405918 | serum elegance cantik / serum elegance best / mood pakai serum | elegance disini / Elegance Glowing / Grab sini
-Elegance_v2 | 1729528041579775198 | serum cantik elegance / serum penjaga muka / serum elegance best | elegance disini / Elegance Glowing / Grab sini
-GoSmell_v1 | 1729703709970891793 | wangi badan segar / bau segar mungkin / petua wangi badan | bau wangi sini / wangi badan sini / beli sini
-Multivitamin | 1730916309746353590 | multivitamin sihat mungkin / teman sihat harian / agak sihat bertenaga | multivitamin disini / habbatussauda sini / beli sini
-Pentavite_vit-C | 1729494643478398170 | badan sihat segar / vitamin C segar / kulit cerah mungkin | pentavite vit C / vit C pentavite / vit C sini
-Powerbank_Anker | 1730617687394256734 | powerbank anker padu / powerbank serbaguna best / powerbank anker tahan | powerbank 10k mAh / powerbank premium tahan / powerbank kat sini
-Stevia_v1 | 1730573634571372263 | stevia pengganti gula / pengganti gula best / ganti gula sedap | Stevia Original / Stevia kat sini / Beli disini
-Teh_v1 | 1735588676621928331 | teh sihat segar / teh sihat best / teh lemon segar | Lemon Tea Segar / Teh Sihat Sini / Cepat Grab
-Tumbler_v1 | 1732385261157517145 | tumbler mudah bawak / tumbler sejuk panas / tumbler cantik molek | tumbler tahan lasak / beli tumbler sini / tumbler kat sini
+Biocho | 1234567890123 | Biocho Serum / Biocho Glow | murah gila / best seller hari ni
+Serum  | 1234567890456 | Serum Wajah / Serum Anti-Aging | diskaun besar / stok terhad

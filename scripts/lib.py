@@ -30,23 +30,13 @@ try:
 except ImportError:  # py < 3.9
     ZoneInfo = None  # type: ignore[assignment]
 
+# Use centralized config module
+from config import get_config as _get_config, cfg as _cfg, reload_config as _reload_config
 
 # ----------------------------------------------------------------- config ----
 
-def _default_home() -> str:
-    env_h = os.environ.get("TIKTOKFLOW_HOME") or os.environ.get("TIKTOK_MACHINE_HOME")
-    if env_h:
-        return os.path.expanduser(env_h)
-    this_dir = Path(__file__).resolve().parent
-    if this_dir.name == "scripts":
-        return str(this_dir.parent)
-    return str(this_dir)
-
-
-PROJECT_ROOT = Path(_default_home())
-CONFIG_PATH = Path(os.environ.get(
-    "TIKTOK_MACHINE_CONFIG",
-    str(PROJECT_ROOT / "config" / "config.yaml")))
+PROJECT_ROOT = _get_config().project_root
+CONFIG_PATH = _get_config().config_path
 
 # Directories under the drive root that are never products.
 NON_PRODUCT_DIRS = {
@@ -67,47 +57,26 @@ TELEGRAM_LIMIT = 3900
 
 
 def load_config() -> dict:
-    """Read config.yaml. Missing file -> empty dict (everything has defaults)."""
-    try:
-        with open(CONFIG_PATH, "r", encoding="utf-8") as f:
-            data = yaml_safe_load(f)
-            return data if isinstance(data, dict) else {}
-    except FileNotFoundError:
-        return {}
-    except Exception:
-        return {}
-
-
-def yaml_safe_load(text) -> dict:
-    try:
-        import yaml
-        return yaml.safe_load(text) or {}
-    except Exception:
-        return {}
-
-
-_CFG: dict | None = None
+    """Read config.yaml. Delegates to centralized config."""
+    return _get_config()._data
 
 
 def config() -> dict:
-    """Load config.yaml once and cache it."""
-    global _CFG
-    if _CFG is None:
-        _CFG = load_config()
-    return _CFG
+    """Load config.yaml once and cache it. Delegates to centralized config."""
+    return _get_config()._data
 
 
 def cfg(*path: str, default=None):
-    """Drill into the config dict. `cfg('proxy','strict_mode')`."""
-    node: dict = config()
-    for key in path:
-        if not isinstance(node, dict):
-            return default
-        node = node.get(key)
-    return node if node is not None else default
+    """Drill into the config dict. `cfg('proxy','strict_mode')`. Delegates to centralized config."""
+    return _cfg(*path, default=default)
 
 
-# ---------------------------------------------------------------- paths ----
+def reload_config() -> dict:
+    """Force reload of configuration from file."""
+    return _reload_config()._data
+
+
+# ---------------------------------------------------------------- paths ----# ---------------------------------------------------------------- paths ----
 
 def env_path(var: str, default: str) -> Path:
     return Path(os.path.expanduser(os.environ.get(var) or default))

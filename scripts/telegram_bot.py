@@ -30,8 +30,8 @@ from telegram.ext import (
 )
 
 from db import Database
-from ai_engine import AIEngine
-from compliance_engine import ComplianceEngine
+from ai_growth import AIGrowthEngine
+from compliance import ComplianceEngine
 
 logger = logging.getLogger(__name__)
 

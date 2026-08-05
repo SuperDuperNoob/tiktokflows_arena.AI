@@ -41,7 +41,7 @@ SCRIPT_DIR = Path(__file__).parent.parent / "scripts"
 sys.path.insert(0, str(SCRIPT_DIR))
 
 from db import Database
-from compliance_engine import ComplianceEngine
+from compliance import ComplianceEngine
 
 # Paths
 PROJECT_ROOT = Path(__file__).parent.parent
