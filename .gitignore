@@ -2,6 +2,7 @@
 
 # Secrets / credentials
 config/config.yaml
+config/config-(copy).yaml
 *.cookie
 *.key
 .env

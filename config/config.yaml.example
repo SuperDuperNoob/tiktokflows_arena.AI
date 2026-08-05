@@ -15,9 +15,9 @@ tiktok:
   session_username: "kumpul.shop"
   # Absolute path to the TiktokAutoUploader checkout (contains config.txt and
   # CookiesDir/). Leave default if you cloned it next to this repo.
-  uploader_dir: "/opt/TiktokAutoUploader"
+  uploader_dir: "/home/archery/ai-project/tiktokflows_arena.AI/TiktokAutoUploader"
   # Warn when cookies are older than this many days.
-  cookie_max_age_days: 7
+  cookie_max_age_days: 14
 
 # --- Posting schedule -------------------------------------------------------
 # Every ~2 hours with human-like jitter, quiet between 2AM-6AM MYT.
@@ -155,7 +155,7 @@ apify:
   # which map 1:1 to our competitor_videos/competitor_daily analytics tables.
   actor_id: "clockworks/tiktok-scraper"
   # Handles to scrape. Defaults to own account + rival if left empty.
-  competitors: []
+  competitors: [reski.reski700]
   results_per_page: 20        # per profile; enough for a 7-day trend
   max_competitors: 5
   # Hour (MYT) the daily competitor scrape runs.
