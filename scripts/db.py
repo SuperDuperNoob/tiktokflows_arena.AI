@@ -21,6 +21,8 @@ CREATE TABLE IF NOT EXISTS posts (
     raw_video_path TEXT NOT NULL,
     processed_video_path TEXT NOT NULL,
     caption_text TEXT NOT NULL,
+    description_text TEXT,
+    product_tag_text TEXT,
     sound_file TEXT,
     speed_factor REAL,
     brightness_shift REAL,
@@ -52,6 +54,8 @@ CREATE TABLE IF NOT EXISTS caption_pool (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     product_name TEXT,  -- NULL = generic, usable for any product
     caption_text TEXT NOT NULL,
+    description_text TEXT,
+    product_tag_text TEXT,
     compliance_checked INTEGER DEFAULT 0,
     times_used INTEGER DEFAULT 0,
     last_used DATETIME,
@@ -103,13 +107,28 @@ class Database:
     def _init_schema(self):
         with self._connect() as conn:
             conn.executescript(SCHEMA)
-            # Migrate older raw_stock tables (ledger columns).
+            # Migrate older tables
+            # raw_stock
             cols = {r["name"] for r in conn.execute("PRAGMA table_info(raw_stock)")}
             for col, ddl in (("file_hash", "TEXT"),
                              ("posted_at", "TEXT"),
                              ("drive_cleaned_at", "TEXT")):
                 if col not in cols:
                     conn.execute(f"ALTER TABLE raw_stock ADD COLUMN {col} {ddl}")
+            
+            # posts
+            cols = {r["name"] for r in conn.execute("PRAGMA table_info(posts)")}
+            for col, ddl in (("description_text", "TEXT"),
+                             ("product_tag_text", "TEXT")):
+                if col not in cols:
+                    conn.execute(f"ALTER TABLE posts ADD COLUMN {col} {ddl}")
+
+            # caption_pool
+            cols = {r["name"] for r in conn.execute("PRAGMA table_info(caption_pool)")}
+            for col, ddl in (("description_text", "TEXT"),
+                             ("product_tag_text", "TEXT")):
+                if col not in cols:
+                    conn.execute(f"ALTER TABLE caption_pool ADD COLUMN {col} {ddl}")
 
     @contextmanager
     def _connect(self):
@@ -131,17 +150,18 @@ class Database:
 
     def create_post(self, product_name: str, product_id: str,
                     raw_video_path: str, processed_video_path: str,
-                    caption_text: str, sound_file: str = None,
+                    caption_text: str, description_text: str = None,
+                    product_tag_text: str = None, sound_file: str = None,
                     speed_factor: float = None, brightness_shift: float = None) -> int:
         """Create a new post record. Returns the post ID."""
         with self._connect() as conn:
             cur = conn.execute(
                 """INSERT INTO posts
                    (product_name, product_id, raw_video_path, processed_video_path,
-                    caption_text, sound_file, speed_factor, brightness_shift, status)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'PENDING')""",
+                    caption_text, description_text, product_tag_text, sound_file, speed_factor, brightness_shift, status)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING')""",
                 (product_name, product_id, raw_video_path, processed_video_path,
-                 caption_text, sound_file, speed_factor, brightness_shift)
+                 caption_text, description_text, product_tag_text, sound_file, speed_factor, brightness_shift)
             )
             return cur.lastrowid
 
@@ -260,15 +280,16 @@ class Database:
     # =========================================================================
 
     def add_caption(self, product_name: str, caption_text: str,
+                    description_text: str = None, product_tag_text: str = None,
                     source: str = "manual", compliance_checked: bool = False,
                     original_text: str = None) -> int:
         """Add a caption to the pool. Returns caption ID."""
         with self._connect() as conn:
             cur = conn.execute(
                 """INSERT OR IGNORE INTO caption_pool
-                   (product_name, caption_text, compliance_checked, source, original_text)
-                   VALUES (?, ?, ?, ?, ?)""",
-                (product_name, caption_text, int(compliance_checked), source, original_text)
+                   (product_name, caption_text, description_text, product_tag_text, compliance_checked, source, original_text)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                (product_name, caption_text, description_text, product_tag_text, int(compliance_checked), source, original_text)
             )
             return cur.lastrowid
 

@@ -237,12 +237,15 @@ async function loadCaptions() {
         div.innerHTML = captions.map(c => {
             const checked = c.compliance_checked ? '✅' : '⚠️';
             const source = c.source || 'manual';
-            return `<div class="list-item">
-                <div>
+            return `<div class="list-item" style="flex-direction: column; align-items: flex-start; gap: 8px;">
+                <div style="display: flex; justify-content: space-between; width: 100%;">
                     <div class="label">${checked} [${source}] ${c.product_name || 'Generic'}</div>
-                    <div style="color:var(--text-secondary);font-size:0.85rem;margin-top:4px">"${c.caption_text}"</div>
+                    <div class="meta">Used: ${c.times_used || 0}x</div>
                 </div>
-                <div class="meta">Used: ${c.times_used || 0}x</div>
+                <div style="font-size:0.85rem; padding: 8px; background: rgba(255,255,255,0.05); border-radius: 4px; width: 100%;">
+                    <div style="margin-bottom: 4px;"><strong style="color:var(--text-secondary)">Overlay:</strong> "${c.caption_text}"</div>
+                    <div><strong style="color:var(--text-secondary)">Description:</strong> "${c.description_text || ''}"</div>
+                </div>
             </div>`;
         }).join('');
 
@@ -259,16 +262,20 @@ async function loadCaptions() {
 async function addCaption() {
     const product = document.getElementById('add-caption-product').value || null;
     const text = document.getElementById('add-caption-text').value.trim();
+    const descText = document.getElementById('add-description-text').value.trim();
+    
     if (!text) return;
 
     try {
         const result = await api('POST', '/api/captions', {
             product_name: product,
             caption_text: text,
+            description_text: descText || null,
             source: 'manual',
         });
-        alert(`✅ Caption added: ${result.caption}`);
+        alert(`✅ Caption set added: ${result.caption}`);
         document.getElementById('add-caption-text').value = '';
+        document.getElementById('add-description-text').value = '';
         loadCaptions();
     } catch (err) {
         alert(`❌ ${err.message}`);
@@ -299,17 +306,70 @@ async function loadProductsDetail() {
         }
 
         div.innerHTML = data.map(p => `
-            <div class="list-item">
-                <div>
-                    <div class="label">${p.name}</div>
-                    <div style="color:var(--text-secondary);font-size:0.8rem">${p.product_id} · ${p.description || 'No description'}</div>
-                    ${p.keywords && p.keywords.length ? `<div style="color:var(--accent-blue);font-size:0.75rem;margin-top:4px">${p.keywords.join(', ')}</div>` : ''}
+            <div class="list-item" style="flex-direction: column; align-items: flex-start; gap: 8px;">
+                <div style="display: flex; justify-content: space-between; width: 100%;">
+                    <div>
+                        <div class="label">${p.name}</div>
+                        <div style="color:var(--text-secondary);font-size:0.8rem">${p.product_id} · ${p.description || 'No description'}</div>
+                        ${p.keywords && p.keywords.length ? `<div style="color:var(--accent-blue);font-size:0.75rem;margin-top:4px">${p.keywords.join(', ')}</div>` : ''}
+                    </div>
+                    <div class="meta">${p.stock} raw videos</div>
                 </div>
-                <div class="meta">${p.stock} raw videos</div>
+                <div style="width: 100%; margin-top: 10px;">
+                    <div style="font-size: 0.85rem; font-weight: bold; margin-bottom: 5px;">Yellow Bag Tags (2-5 recommended):</div>
+                    <ul style="margin: 0; padding-left: 20px; font-size: 0.85rem; color: var(--text-secondary);">
+                        ${(p.yellow_bag_tags || []).map(tag => `
+                            <li>${tag} <button style="background: none; border: none; color: #ff4d4d; cursor: pointer; margin-left: 10px;" onclick="removeProductTag('${p.name}', '${tag.replace(/'/g, "\\'")}')">✖</button></li>
+                        `).join('')}
+                    </ul>
+                    <div style="margin-top: 8px; display: flex; gap: 5px;">
+                        <input type="text" id="add-tag-${p.name}" placeholder="New tag..." style="font-size: 0.8rem; padding: 4px; width: 200px;">
+                        <button class="btn btn-sm" onclick="addProductTag('${p.name}')">Add</button>
+                    </div>
+                </div>
             </div>`).join('');
 
     } catch (err) {
         console.error('Products detail failed:', err);
+    }
+}
+
+async function addProduct() {
+    const name = document.getElementById('add-product-name').value.trim();
+    const pid = document.getElementById('add-product-id').value.trim();
+    if (!name || !pid) return alert('Name and Product ID required');
+
+    try {
+        await api('POST', '/api/products', { name: name, product_id: pid });
+        alert(`✅ Product ${name} added. Empty folder created for Google Drive sync.`);
+        document.getElementById('add-product-name').value = '';
+        document.getElementById('add-product-id').value = '';
+        loadProductsDetail();
+        loadProducts(); // Refresh dropdowns
+    } catch (err) {
+        alert(`❌ ${err.message}`);
+    }
+}
+
+async function addProductTag(productName) {
+    const tag = document.getElementById(`add-tag-${productName}`).value.trim();
+    if (!tag) return;
+
+    try {
+        await api('POST', '/api/products/tags', { product_name: productName, tag: tag });
+        loadProductsDetail();
+    } catch (err) {
+        alert(`❌ ${err.message}`);
+    }
+}
+
+async function removeProductTag(productName, tag) {
+    if (!confirm(`Remove tag "${tag}"?`)) return;
+    try {
+        await api('DELETE', '/api/products/tags', { product_name: productName, tag: tag });
+        loadProductsDetail();
+    } catch (err) {
+        alert(`❌ ${err.message}`);
     }
 }
 

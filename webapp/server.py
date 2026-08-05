@@ -73,7 +73,17 @@ class ConfigUpdate(BaseModel):
 class CaptionAdd(BaseModel):
     product_name: Optional[str] = None
     caption_text: str
+    description_text: Optional[str] = None
+    product_tag_text: Optional[str] = None
     source: str = "manual"
+
+class ProductAdd(BaseModel):
+    name: str
+    product_id: str
+
+class TagAdd(BaseModel):
+    product_name: str
+    tag: str
 
 class ActionResponse(BaseModel):
     success: bool
@@ -231,6 +241,8 @@ async def add_caption(payload: CaptionAdd):
     db.add_caption(
         product_name=payload.product_name,
         caption_text=final_text,
+        description_text=payload.description_text,
+        product_tag_text=payload.product_tag_text,
         source=payload.source,
         compliance_checked=True,
         original_text=payload.caption_text if final_text != payload.caption_text else None,
@@ -247,23 +259,120 @@ async def get_products():
     products = {}
     if PRODUCTS_PATH.exists():
         with open(PRODUCTS_PATH, "r") as f:
-            products = json.load(f)
+            try:
+                products = json.load(f)
+            except:
+                pass
 
     # Merge with config product details
     config_products = CONFIG.get("products", {})
     result = []
-    for name, product_id in products.items():
+    for name, data in products.items():
+        if isinstance(data, dict):
+            product_id = data.get("id", "")
+            tags = data.get("yellow_bag_tags", [])
+        else:
+            product_id = str(data)
+            tags = []
+
         detail = config_products.get(name, {})
         stock = db.get_raw_stock_counts().get(name, 0)
         result.append({
             "name": name,
             "product_id": product_id,
+            "yellow_bag_tags": tags,
             "description": detail.get("description", ""),
             "keywords": detail.get("keywords", []),
             "stock": stock,
         })
 
     return result
+
+@app.post("/api/products")
+async def add_product(payload: ProductAdd):
+    """Add a new product, update JSON, and create its raw folder."""
+    products = {}
+    if PRODUCTS_PATH.exists():
+        with open(PRODUCTS_PATH, "r") as f:
+            try:
+                products = json.load(f)
+            except Exception:
+                pass
+    
+    # Store using dict format so we can add tags later
+    products[payload.name] = {
+        "id": payload.product_id,
+        "yellow_bag_tags": []
+    }
+    
+    with open(PRODUCTS_PATH, "w") as f:
+        json.dump(products, f, indent=2)
+        
+    # Create raw folder
+    raw_dir = PROJECT_ROOT / CONFIG.get("content", {}).get("raw_dir", "content/raw")
+    product_dir = raw_dir / payload.name
+    product_dir.mkdir(parents=True, exist_ok=True)
+    
+    dummy_file = product_dir / ".keep"
+    if not dummy_file.exists():
+        dummy_file.write_text("keep folder for Google Drive sync")
+        
+    return {"status": "success", "message": f"Added product {payload.name}"}
+
+@app.post("/api/products/tags")
+async def add_product_tag(payload: TagAdd):
+    """Add a yellow bag tag to a product."""
+    if not PRODUCTS_PATH.exists():
+        raise HTTPException(400, "products.json not found")
+        
+    with open(PRODUCTS_PATH, "r") as f:
+        products = json.load(f)
+        
+    if payload.product_name not in products:
+        raise HTTPException(404, "Product not found")
+        
+    data = products[payload.product_name]
+    if not isinstance(data, dict):
+        products[payload.product_name] = {
+            "id": str(data),
+            "yellow_bag_tags": [payload.tag]
+        }
+    else:
+        tags = data.get("yellow_bag_tags", [])
+        if payload.tag not in tags:
+            tags.append(payload.tag)
+        data["yellow_bag_tags"] = tags
+        products[payload.product_name] = data
+        
+    with open(PRODUCTS_PATH, "w") as f:
+        json.dump(products, f, indent=2)
+        
+    return {"status": "success"}
+
+@app.delete("/api/products/tags")
+async def remove_product_tag(payload: TagAdd):
+    """Remove a yellow bag tag from a product."""
+    if not PRODUCTS_PATH.exists():
+        raise HTTPException(400, "products.json not found")
+        
+    with open(PRODUCTS_PATH, "r") as f:
+        products = json.load(f)
+        
+    if payload.product_name not in products:
+        raise HTTPException(404, "Product not found")
+        
+    data = products[payload.product_name]
+    if isinstance(data, dict):
+        tags = data.get("yellow_bag_tags", [])
+        if payload.tag in tags:
+            tags.remove(payload.tag)
+        data["yellow_bag_tags"] = tags
+        products[payload.product_name] = data
+        
+        with open(PRODUCTS_PATH, "w") as f:
+            json.dump(products, f, indent=2)
+            
+    return {"status": "success"}
 
 
 # ── Events ──────────────────────────────────────────────────────────────

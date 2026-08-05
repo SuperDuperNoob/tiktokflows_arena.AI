@@ -225,7 +225,10 @@ class UploadOrchestrator:
             return
 
         product_name, raw_video_path, raw_stock_id = selection
-        product_id = self._get_product_id(product_name)
+        product_id, yellow_bag_tags = self._get_product_info(product_name)
+        
+        # Select a random yellow bag tag if available
+        product_tag_text = random.choice(yellow_bag_tags) if yellow_bag_tags else None
 
         # Step 4: Get caption
         caption = self._get_caption(product_name)
@@ -248,7 +251,7 @@ class UploadOrchestrator:
         # Step 6: Transform video
         try:
             processed_path, transform_params = self.transformer.transform(
-                raw_video_path, product_name, caption, audio_mode="mix"
+                raw_video_path, product_name, caption["caption_text"], audio_mode="mix"
             )
             logger.info(f"Video transformed: {processed_path}")
         except Exception as e:
@@ -262,7 +265,9 @@ class UploadOrchestrator:
             product_id=product_id,
             raw_video_path=raw_video_path,
             processed_video_path=processed_path,
-            caption_text=caption,
+            caption_text=caption["caption_text"],
+            description_text=caption.get("description_text"),
+            product_tag_text=product_tag_text,
             sound_file=transform_params.get("sound_file"),
             speed_factor=transform_params.get("speed_factor"),
             brightness_shift=transform_params.get("brightness"),
@@ -270,13 +275,16 @@ class UploadOrchestrator:
         self.db.update_post_status(post_id, "TRANSFORMING")
 
         # Step 8: Upload via TiktokAutoUploader
+        title_text = caption.get("description_text") or caption["caption_text"]
         success = self._do_upload(
             session_user=self.config["tiktok"]["session_username"],
             video_path=processed_path,
-            title=caption,
+            title=title_text,
             proxy=proxy_url,
             post_id=post_id,
             proxy_ip=proxy_ip,
+            product_id=product_id,
+            product_tag_text=product_tag_text
         )
 
         # Step 9: Handle result
@@ -289,10 +297,10 @@ class UploadOrchestrator:
 
             self.db.update_post_status(post_id, "POSTED", proxy_ip=proxy_ip)
             self.db.mark_raw_video_used(raw_stock_id)
-            self.db.log_event("UPLOAD_SUCCESS", f"Posted {product_name}: {caption[:50]}")
+            self.db.log_event("UPLOAD_SUCCESS", f"Posted {product_name}: {title_text[:50]}")
 
             # Mark caption as used
-            self._mark_caption_used(caption)
+            self._mark_caption_used(caption["id"])
 
             # Notification
             posts_today = self.db.get_posted_count_today()
@@ -321,10 +329,12 @@ class UploadOrchestrator:
             retry_success = self._do_upload(
                 session_user=self.config["tiktok"]["session_username"],
                 video_path=processed_path,
-                title=caption,
+                title=title_text,
                 proxy=proxy_url,
                 post_id=post_id,
                 proxy_ip=proxy_ip,
+                product_id=product_id,
+                product_tag_text=product_tag_text
             )
 
             if retry_success:
@@ -333,9 +343,9 @@ class UploadOrchestrator:
                 shutil.move(processed_path, dest)
                 self.db.update_post_status(post_id, "POSTED", proxy_ip=proxy_ip)
                 self.db.mark_raw_video_used(raw_stock_id)
-                self.db.log_event("UPLOAD_SUCCESS", f"Posted {product_name} (retry): {caption[:50]}")
+                self.db.log_event("UPLOAD_SUCCESS", f"Posted {product_name} (retry): {title_text[:50]}")
                 self.telegram.notify_upload_success(
-                    product_name, caption, stock_report,
+                    product_name, title_text, stock_report,
                     self.db.get_posted_count_today(),
                     self.config["posting"].get("daily_post_target", 7)
                 )
@@ -387,39 +397,39 @@ class UploadOrchestrator:
 
         return None
 
-    def _get_caption(self, product_name: str) -> Optional[str]:
-        """Get an available caption for the product."""
+    def _get_caption(self, product_name: str) -> Optional[dict]:
+        """Get an available caption dict for the product."""
         captions = self.db.get_available_captions(product_name, limit=10)
         if not captions:
             return None
         # Pick the least-used one
-        caption = captions[0]
-        return caption["caption_text"]
+        return captions[0]
 
-    def _mark_caption_used(self, caption_text: str):
+    def _mark_caption_used(self, caption_id: int):
         """Mark a caption as used in the pool."""
-        with self.db._connect() as conn:
-            conn.execute(
-                """UPDATE caption_pool SET times_used = times_used + 1, last_used = ?
-                   WHERE caption_text = ?""",
-                (datetime.now(timezone.utc).isoformat(), caption_text)
-            )
+        self.db.mark_caption_used(caption_id)
 
-    def _get_product_id(self, product_name: str) -> str:
-        """Get TikTok product ID from config or products.json."""
-        # Try config first
-        products_config = self.config.get("products", {})
-        if product_name in products_config:
-            return products_config[product_name].get("product_id", "")
-
-        # Try products.json
+    def _get_product_info(self, product_name: str) -> tuple[str, list]:
+        """Get TikTok product ID and tags from config or products.json. Returns (product_id, tags_list)."""
         products_file = self.config["google_drive"].get("products_file", "content/products.json")
         if os.path.exists(products_file):
             with open(products_file, "r") as f:
-                products = json.load(f)
-                return products.get(product_name, "")
+                try:
+                    products = json.load(f)
+                    data = products.get(product_name)
+                    if isinstance(data, dict):
+                        return data.get("id", ""), data.get("yellow_bag_tags", [])
+                    elif data:
+                        return str(data), []
+                except Exception:
+                    pass
 
-        return ""
+        # Fallback to config
+        products_config = self.config.get("products", {})
+        if product_name in products_config:
+            return products_config[product_name].get("product_id", ""), []
+
+        return "", []
 
     def _verify_proxy(self, proxy_url: str) -> Optional[str]:
         """Verify proxy exit IP is residential and in expected country."""
@@ -463,16 +473,21 @@ class UploadOrchestrator:
             return None
 
     def _do_upload(self, session_user: str, video_path: str, title: str,
-                   proxy: str, post_id: int, proxy_ip: str = None) -> bool:
+                   proxy: str, post_id: int, proxy_ip: str = None,
+                   product_id: str = None, product_tag_text: str = None) -> bool:
         """Execute the actual TikTok upload via TiktokAutoUploader."""
         try:
             from tiktok_uploader import tiktok as tt_uploader
 
             logger.info(f"Uploading to TikTok: {video_path}")
-            logger.info(f"  Caption: {title[:80]}...")
+            logger.info(f"  Title: {title[:80]}...")
             logger.info(f"  Proxy: {'configured' if proxy else 'none'}")
 
             self.db.update_post_status(post_id, "POSTING")
+            
+            products_arg = None
+            if product_id and product_tag_text:
+                products_arg = [{"product_id": product_id, "caption": product_tag_text}]
 
             result = tt_uploader.upload_video(
                 session_user=session_user,
@@ -487,6 +502,7 @@ class UploadOrchestrator:
                 branded_content_type=0,
                 ai_label=0,
                 proxy=proxy,
+                products=products_arg
             )
 
             return bool(result)
