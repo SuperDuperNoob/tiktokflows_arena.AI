@@ -120,8 +120,9 @@
                     <select id="add-caption-product">
                         <option value="">Generic (any product)</option>
                     </select>
-                    <input type="text" id="add-caption-text" placeholder="Enter caption...">
-                    <button class="btn btn-primary" onclick="addCaption()">Add Caption</button>
+                    <input type="text" id="add-caption-text" placeholder="Video Overlay Text (Hook/Base)...">
+                    <input type="text" id="add-description-text" placeholder="Post Description (Max 20 words)...">
+                    <button class="btn btn-primary" onclick="addCaption()">Add Set</button>
                 </div>
                 <div id="captions-list" class="list-container"></div>
             </div>
@@ -131,6 +132,11 @@
         <section id="tab-products" class="tab-content">
             <div class="card">
                 <h3>📦 Products</h3>
+                <div class="add-caption-form" style="margin-bottom: 20px;">
+                    <input type="text" id="add-product-name" placeholder="Product Name (e.g. Biocho)">
+                    <input type="text" id="add-product-id" placeholder="TikTok Product ID">
+                    <button class="btn btn-primary" onclick="addProduct()">Add Product</button>
+                </div>
                 <div id="products-list" class="list-container"></div>
             </div>
         </section>
