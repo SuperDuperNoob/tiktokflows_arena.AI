@@ -570,6 +570,8 @@ Script generates a QR code image → save it or send via Telegram → scan with 
 
 ## How It Works
 
+*(For a highly detailed, step-by-step code lifecycle of the entire system, read the [System Lifecycle Guide](docs/system_lifecycle.md)).*
+
 ### Video Transformation Pipeline
 
 Every raw video is made visually unique before upload — no two uploads share the same file hash or fingerprint.
