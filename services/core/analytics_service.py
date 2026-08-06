@@ -9,7 +9,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "scripts"
 from competitor_scraper import CompetitorScraper
 from reconcile_metrics import reconcile
 from generate_report import build as build_report
-import lib
+
+from services.utils.legacy import lib
 
 from services.repositories import AnalyticsRepository
 from services.models import GrowthReport, DailySummary

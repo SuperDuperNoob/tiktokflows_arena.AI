@@ -12,11 +12,13 @@ import shutil
 import time
 import fcntl
 
-import lib
-from lib import (check_proxy_exit, env_flag, is_proxy_transport_error,
-                 mask_proxy, normalize_proxy_url)
 from sidecar_manager import SidecarManager
 
+from services.utils.legacy import (
+    check_proxy_exit, env_flag, is_proxy_transport_error,
+    mask_proxy, normalize_proxy_url,
+    lib,
+)
 from services.models import UploadResult
 from services.infrastructure.tiktok_adapter import TikTokAdapter
 from services.infrastructure.sidecar_adapter import SidecarAdapter
@@ -38,7 +40,7 @@ class UploadService:
         if raw_proxy:
             self.proxy_url = normalize_proxy_url(raw_proxy)
             logger.info("Upload proxy: %s (exit IP verified before upload)",
-                        mask_proxy(self.proxy_url))
+                        mask_proxy(self.proxy_url or ""))
         else:
             logger.warning(
                 "Upload proxy: None - posting from VPS datacenter IP, "

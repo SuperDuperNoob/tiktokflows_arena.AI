@@ -14,7 +14,8 @@ import os
 import logging
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "scripts"))
-import lib
+
+from services.utils.legacy import lib
 import json
 import random
 import hashlib

@@ -4,12 +4,14 @@
 from . import models
 from . import repositories
 from . import infrastructure
+from . import utils
 # core is imported lazily to avoid circular imports with scripts
 
 __all__ = [
     "models",
     "repositories", 
     "infrastructure",
+    "utils",
     "core",
 ]
 

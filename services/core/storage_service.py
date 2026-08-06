@@ -5,10 +5,14 @@ from pathlib import Path
 import subprocess
 import sys
 import os
+import logging
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "scripts"))
 from config import get_config
-import lib
+
+from services.utils.legacy import lib
+
+logger = logging.getLogger(__name__)
 
 
 class StorageService:
