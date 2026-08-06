@@ -5,12 +5,7 @@ from pathlib import Path
 import subprocess
 import random
 import json
-
-import sys
-import os
-
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "..", "scripts"))
-from config import get_config
+from scripts.config import get_config
 
 
 class FFmpegAdapter:
@@ -21,13 +16,14 @@ class FFmpegAdapter:
 
     def get_encoding_params(self) -> Dict[str, str]:
         """Get encoding parameters from config."""
+        cfg = get_config()
         return {
-            "crf": str(get_config().get("encoding", "crf", default=23)),
-            "maxrate": str(get_config().get("encoding", "maxrate", default="5M")),
-            "bufsize": str(get_config().get("encoding", "bufsize", default="8M")),
-            "abr": str(get_config().get("encoding", "abr", default="128k")),
-            "preset": str(get_config().get("encoding", "preset", default="veryfast")),
-            "threads": str(get_config().get("encoding", "threads", default=1)),
+            "crf": str(cfg.get("encoding", "crf", default=23)),
+            "maxrate": str(cfg.get("encoding", "maxrate", default="5M")),
+            "bufsize": str(cfg.get("encoding", "bufsize", default="8M")),
+            "abr": str(cfg.get("encoding", "abr", default="128k")),
+            "preset": str(cfg.get("encoding", "preset", default="veryfast")),
+            "threads": str(cfg.get("encoding", "threads", default=1)),
         }
 
     def probe_resolution(self, video_path: Path) -> tuple[int, int]:

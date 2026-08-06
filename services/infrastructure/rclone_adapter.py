@@ -3,11 +3,7 @@
 from typing import Any, Dict, List, Optional
 from pathlib import Path
 import subprocess
-import sys
-import os
-
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "..", "scripts"))
-from config import get_config
+from scripts.config import get_config
 
 
 class RcloneAdapter:

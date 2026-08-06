@@ -13,9 +13,24 @@ import sys
 import os
 import logging
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "scripts"))
-
-from services.utils.legacy import lib
+from scripts.config import get_config
+from services.utils.paths import (
+    VIDEO_EXTS,
+    failed_dir,
+    burn_jsonl,
+    db_path,
+    drive_root,
+    NON_PRODUCT_DIRS,
+    product_txt,
+    preset_txt,
+    sounds_dir,
+    queue_dir,
+    processed_dir,
+    deleted_log,
+)
+from services.utils.quality import MIN_MB_PER_SEC, MIN_OUTPUT_FRAMES
+from services.utils.timezone import OWN_HANDLE, RIVAL_HANDLE
+from services.utils.db_utils import mark_raw_consumed, get_conn, ensure_schema
 import json
 import random
 import hashlib
@@ -93,19 +108,19 @@ class VideoService:
             return 0, 0
         
         clips = sorted(
-            f for ext in lib.VIDEO_EXTS
+            f for ext in VIDEO_EXTS
             for f in folder.glob(f"*{ext}"))
         
         if not clips:
             return 0, 0
 
         bad = 0
-        quarantine_dir = lib.failed_dir()
+        quarantine_dir = failed_dir()
         
         for clip in clips:
             n = self.frame_count(clip)
             d = self.duration(clip)
-            if n and n < lib.MIN_OUTPUT_FRAMES:
+            if n and n < MIN_OUTPUT_FRAMES:
                 bad += 1
                 if quarantine:
                     try:
@@ -122,7 +137,7 @@ class VideoService:
 
     def audit_burn_log(self) -> int:
         """Audit burn_log.jsonl for suspicious entries."""
-        path = lib.burn_jsonl()
+        path = burn_jsonl()
         if not path.exists():
             return 0
         
@@ -137,7 +152,7 @@ class VideoService:
                 except ValueError:
                     continue
                 if "frames" in e:
-                    if e["frames"] and e["frames"] < lib.MIN_OUTPUT_FRAMES:
+                    if e["frames"] and e["frames"] < MIN_OUTPUT_FRAMES:
                         suspicious += 1
                 else:
                     d = e.get("duration_s") or 0
@@ -180,19 +195,20 @@ class VideoService:
     EMOJI_POOL = ["😭", "🥰", "🔥", "💛", "🤲", "🛒", "👇", "✨", "💔", "🥹"]
 
     def _encode(self) -> dict:
+        cfg = get_config()
         return {
-            "crf": str(lib.cfg("encoding", "crf", default=23)),
-            "maxrate": str(lib.cfg("encoding", "maxrate", default="5M")),
-            "bufsize": str(lib.cfg("encoding", "bufsize", default="8M")),
-            "abr": str(lib.cfg("encoding", "abr", default="128k")),
-            "preset": str(lib.cfg("encoding", "preset", default="veryfast")),
-            "threads": str(lib.cfg("encoding", "threads", default=1)),
+            "crf": str(cfg.get("encoding", "crf", default=23)),
+            "maxrate": str(cfg.get("encoding", "maxrate", default="5M")),
+            "bufsize": str(cfg.get("encoding", "bufsize", default="8M")),
+            "abr": str(cfg.get("encoding", "abr", default="128k")),
+            "preset": str(cfg.get("encoding", "preset", default="veryfast")),
+            "threads": str(cfg.get("encoding", "threads", default=1)),
         }
 
     def load_products(self) -> dict:
         """Parse product_id.txt: folder | id | title / title | caption / caption"""
         prods: dict[str, dict] = {}
-        path = lib.product_txt()
+        path = product_txt()
         if not path.exists():
             logger.warning("product_id.txt missing at %s", path)
             return prods
@@ -210,7 +226,7 @@ class VideoService:
         return prods
 
     def load_captions(self) -> list:
-        path = lib.preset_txt()
+        path = preset_txt()
         if not path.exists():
             return []
         content = path.read_text(encoding="utf-8", errors="ignore")
@@ -284,18 +300,18 @@ class VideoService:
         return w, h
 
     def scan_raw(self) -> dict[str, list[Path]]:
-        root = lib.drive_root()
+        root = drive_root()
         stock: dict[str, list[Path]] = {}
         if not root.exists():
             return stock
         for entry in root.iterdir():
             if not entry.is_dir() or entry.name.startswith("."):
                 continue
-            if entry.name in lib.NON_PRODUCT_DIRS:
+            if entry.name in NON_PRODUCT_DIRS:
                 continue
             files = []
             for f in entry.iterdir():
-                if f.is_file() and f.suffix.lower() in lib.VIDEO_EXTS:
+                if f.is_file() and f.suffix.lower() in VIDEO_EXTS:
                     try:
                         sz = f.stat().st_size
                         if 1_000_000 < sz < 500_000_000:
@@ -310,7 +326,7 @@ class VideoService:
         """product_folder -> perf score, plus best sound/hashtag from rival."""
         weights: dict[str, float] = {}
         best_sound_id = best_sound_name = None
-        db = lib.db_path()
+        db = db_path()
         if not db.exists():
             return weights, best_sound_id, best_sound_name
         try:
@@ -331,7 +347,7 @@ class VideoService:
                 WHERE snap_date >= date('now','-7 days')
                   AND handle IN (?, ?)
                 GROUP BY sound_id ORDER BY avg_v DESC LIMIT 5
-                """, (lib.OWN_HANDLE, lib.RIVAL_HANDLE))
+                """, (OWN_HANDLE, RIVAL_HANDLE))
             rows = cur.fetchall()
             if rows:
                 chosen = random.choices(rows, weights=[r["avg_v"] or 1 for r in rows], k=1)[0]
@@ -347,7 +363,7 @@ class VideoService:
         for folder, files in stock_map.items():
             if not files or folder not in products:
                 continue
-            if (lib.drive_root() / folder / "stop_post").exists():
+            if (drive_root() / folder / "stop_post").exists():
                 logger.info("Skip %s - stop_post marker", folder)
                 continue
             if folder in burn_history[-3:]:
@@ -411,7 +427,7 @@ class VideoService:
     def process_one(self, folder: str, files: list, products: dict,
                     preset_caps: list, burn_history: list,
                     trending_sound_id: str, trending_sound_name: str) -> bool:
-        root = lib.drive_root()
+        root = drive_root()
         random.shuffle(files)
         input_video, width, height = None, 1080, 1920
         for cand in files:
@@ -435,10 +451,10 @@ class VideoService:
         prod_info = products.get(folder, {"id": "", "titles": [folder], "captions": [folder]})
 
         caption = self.generate_malay_caption(prod_info, preset_caps)
-        style = pick_style(lib.cfg("rendering", "force_style"))
+        style = pick_style(get_config().get("rendering", "force_style"))
 
         # Sound selection.
-        sound_dir = lib.sounds_dir()
+        sound_dir = sounds_dir()
         soundtrack = sorted(sound_dir.glob("*.mp3")) if sound_dir.exists() else []
         if not soundtrack:
             logger.warning("No mp3 in soundtrack dir %s", sound_dir)
@@ -463,7 +479,7 @@ class VideoService:
         # Output name.
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
         out_name = f"{folder}_{ts}_{random.randint(100, 999)}"
-        output_video = lib.queue_dir() / f"{out_name}.mp4"
+        output_video = queue_dir() / f"{out_name}.mp4"
 
         ok, err = self.encode(input_video, output_video, tmp_png, selected_sound,
                               width, height, speed, brightness, contrast,
@@ -481,16 +497,16 @@ class VideoService:
         out_frames = self.frame_count(output_video)
         mb_per_sec = fsize_mb / out_dur if out_dur else 0.0
         kbps = int(fsize_mb * 8 * 1024 / out_dur) if out_dur else 0
-        low_quality = bool(out_dur and mb_per_sec < lib.MIN_MB_PER_SEC)
+        low_quality = bool(out_dur and mb_per_sec < MIN_MB_PER_SEC)
 
         # Motion guard: refuse to hand a still image to the uploader.
-        if out_frames and out_frames < lib.MIN_OUTPUT_FRAMES:
+        if out_frames and out_frames < MIN_OUTPUT_FRAMES:
             logger.error(
                 "BROKEN BURN: %s has %s frame(s) (%ss) - STATIC IMAGE. "
                 "Quarantining; raw kept for retry.",
                 output_video.name, out_frames, round(out_dur, 2))
-            lib.failed_dir().mkdir(parents=True, exist_ok=True)
-            quarantine = lib.failed_dir() / output_video.name
+            failed_dir().mkdir(parents=True, exist_ok=True)
+            quarantine = failed_dir() / output_video.name
             try:
                 shutil.move(str(output_video), str(quarantine))
             except OSError as e:
@@ -505,10 +521,10 @@ class VideoService:
         if low_quality:
             logger.warning("QUALITY REGRESSION: %.2f MB/s below %s floor. "
                            "Check FFMPEG_CRF (<=25) / maxrate.", mb_per_sec,
-                           lib.MIN_MB_PER_SEC)
+                           MIN_MB_PER_SEC)
 
         # Archive raw locally AND record it in the DB ledger (source of truth).
-        processed_folder = lib.processed_dir() / folder
+        processed_folder = processed_dir() / folder
         processed_folder.mkdir(parents=True, exist_ok=True)
         try:
             dest = processed_folder / input_video.name
@@ -516,15 +532,15 @@ class VideoService:
             rel = f"{folder}/{input_video.name}"
             # Audit journal (optional; review only).
             try:
-                with open(lib.deleted_log(), "a") as dl:
+                with open(deleted_log(), "a") as dl:
                     dl.write(rel + "\n")
             except OSError:
                 pass
             # DB ledger: mark this raw consumed so it is never re-selected and
             # sync_out deletes its Drive copy.
             try:
-                lib.mark_raw_consumed(folder, input_video.name,
-                                      file_hash=self.md5_file(dest))
+                mark_raw_consumed(folder, input_video.name,
+                                  file_hash=self.md5_file(dest))
                 logger.info("Ledger: marked %s consumed (posted_at set)", rel)
             except Exception as e:
                 logger.warning("Ledger write failed for %s: %s", rel, e)
@@ -535,13 +551,13 @@ class VideoService:
         title = random.choice(prod_info["titles"]) if prod_info.get("titles") else folder
         hashtags = [f"#{folder.lower()}", "#tiktokshop", "#murah", "#begkuning"]
         try:
-            db = lib.db_path()
+            db = db_path()
             if db.exists():
                 conn = sqlite3.connect(str(db))
                 row = conn.execute(
                     "SELECT top_hashtag FROM competitor_daily "
                     "WHERE handle=? ORDER BY snap_date DESC LIMIT 1",
-                    (lib.RIVAL_HANDLE,)).fetchone()
+                    (RIVAL_HANDLE,)).fetchone()
                 if row and row[0]:
                     hashtags.append(f"#{row[0].lstrip('#')}")
                 conn.close()
@@ -577,7 +593,7 @@ class VideoService:
             "low_quality": low_quality,
             "encode": self._encode(),
         }
-        sidecars = SidecarManager(lib.queue_dir())
+        sidecars = SidecarManager(queue_dir())
         sidecars.write(output_video, sidecar)
 
         # Burn log for the growth engine + report.
@@ -604,14 +620,14 @@ class VideoService:
             "low_quality": low_quality,
             "encode": self._encode(),
         }
-        with open(lib.burn_jsonl(), "a", encoding="utf-8") as jl:
+        with open(burn_jsonl(), "a", encoding="utf-8") as jl:
             jl.write(json.dumps(log_entry, ensure_ascii=False) + "\n")
         return True
 
     def run(self, dry_run: bool = False) -> int:
-        lib.queue_dir().mkdir(parents=True, exist_ok=True)
+        queue_dir().mkdir(parents=True, exist_ok=True)
         # Clean the queue of files older than 24h so a failed retry isn't deleted.
-        for f in lib.queue_dir().glob("*"):
+        for f in queue_dir().glob("*"):
             if f.is_file() and (time.time() - f.stat().st_mtime) > 1440 * 60:
                 try:
                     f.unlink()
@@ -634,9 +650,9 @@ class VideoService:
             return 0
 
         burn_history = []
-        if lib.burn_jsonl().exists():
+        if burn_jsonl().exists():
             try:
-                for line in lib.burn_jsonl().read_text().strip().splitlines()[-20:]:
+                for line in burn_jsonl().read_text().strip().splitlines()[-20:]:
                     burn_history.append(json.loads(line).get("folder"))
             except Exception:
                 pass

@@ -4,11 +4,7 @@ from typing import Any, Dict, List, Optional
 from datetime import date, datetime, timedelta
 
 from .base import BaseRepository
-import sys
-import os
-
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "scripts"))
-from config import get_config
+from scripts.config import get_config
 
 
 class AnalyticsRepository(BaseRepository):
@@ -123,7 +119,7 @@ class AnalyticsRepository(BaseRepository):
             ORDER BY snap_date DESC
         """
         # Get handles from config
-        from config import get_config
+        from scripts.config import get_config
         cfg = get_config()
         own_handle = cfg.get("tiktok", "session_username", "kumpul.shop").lower()
         rival_handle = cfg.get("analytics", "rival_handle", "reski.reski700").lower()

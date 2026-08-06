@@ -2,11 +2,8 @@
 
 from typing import Any, Dict, List, Optional
 import requests
-import sys
-import os
-
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "..", "scripts"))
-from config import get_config
+import json
+from scripts.config import get_config
 
 
 class AIAdapter:
@@ -77,7 +74,6 @@ Return ONLY a JSON array of strings."""
             return []
         
         # Parse JSON response
-        import json
         try:
             captions = json.loads(response)
             if isinstance(captions, list):
@@ -106,7 +102,6 @@ Reply with ONLY JSON: {"is_compliant": bool, "violations": [...], "rewritten_cap
         if not response:
             return {"is_compliant": True, "violations": [], "severity": "none"}
         
-        import json
         try:
             start, end = response.find("{"), response.rfind("}")
             if start != -1 and end > start:

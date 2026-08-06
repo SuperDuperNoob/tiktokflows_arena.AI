@@ -14,11 +14,17 @@ import fcntl
 
 from sidecar_manager import SidecarManager
 
-from services.utils.legacy import (
-    check_proxy_exit, env_flag, is_proxy_transport_error,
-    mask_proxy, normalize_proxy_url,
-    lib,
+from config import get_config
+from services.utils.paths import queue_dir, failed_dir, success_log, db_path, failed_dir
+from services.utils.timezone import OWN_HANDLE
+from services.utils.proxy import (
+    check_proxy_exit,
+    is_proxy_transport_error,
+    mask_proxy,
+    normalize_proxy_url,
 )
+from services.utils.db_utils import mark_raw_consumed, get_conn, ensure_schema
+
 from services.models import UploadResult
 from services.infrastructure.tiktok_adapter import TikTokAdapter
 from services.infrastructure.sidecar_adapter import SidecarAdapter
@@ -26,16 +32,25 @@ from services.infrastructure.sidecar_adapter import SidecarAdapter
 logger = logging.getLogger("upload_service")
 
 
+def env_flag(name: str, default: bool = False) -> bool:
+    """Read environment variable as boolean flag."""
+    val = os.environ.get(name, "").strip().lower()
+    if val in ("1", "true", "yes", "on"):
+        return True
+    if val in ("0", "false", "no", "off"):
+        return False
+    return default
+
+
 class UploadService:
     """Service for managing video uploads to TikTok."""
 
     def __init__(self):
-        self.config = lib.config()
-        self.sidecars = SidecarManager(lib.queue_dir())
-        self.tiktok_adapter = TikTokAdapter()
+        self.config = get_config()
+        self.sidecars = SidecarManager(queue_dir())
 
         # Proxy configuration
-        raw_proxy = lib.cfg("proxy", "endpoint", default="") or ""
+        raw_proxy = get_config().get("proxy", "endpoint", default="") or ""
         raw_proxy = os.environ.get("TIKTOK_PROXY", raw_proxy).strip()
         if raw_proxy:
             self.proxy_url = normalize_proxy_url(raw_proxy)
@@ -49,14 +64,14 @@ class UploadService:
             self.proxy_url = None
 
         self.strict_mode = env_flag("TIKTOK_PROXY_STRICT",
-                                    default=bool(lib.cfg("proxy", "strict_mode", default=True)))
+                                    default=bool(get_config().get("proxy", "strict_mode", default=True)))
         self.geo_check = env_flag("TIKTOK_PROXY_GEO_CHECK",
-                                  default=bool(lib.cfg("proxy", "geo_check", default=True)))
+                                  default=bool(get_config().get("proxy", "geo_check", default=True)))
 
     def check_cookie_expiry(self) -> None:
         """Check if TikTok session cookies are fresh enough."""
-        user = lib.cfg("tiktok", "session_username") or "kumpul.shop"
-        uploader_dir = lib.cfg("tiktok", "uploader_dir", default="/opt/TiktokAutoUploader")
+        user = get_config().get("tiktok", "session_username") or "kumpul.shop"
+        uploader_dir = get_config().get("tiktok", "uploader_dir", default="/opt/TiktokAutoUploader")
         candidates = [
             Path(uploader_dir) / "CookiesDir" / f"tiktok_session-{user}.cookie",
             Path(uploader_dir) / "CookiesDir" / f"tiktok_session-{user}",
@@ -77,7 +92,7 @@ class UploadService:
             logger.warning("Cookie older than 12h (%.1fh) - high risk of "
                            "session expiry, consider re-login", age_hours)
             try:
-                with open(lib.failed_log(), "a") as fl:
+                with open(failed_dir(), "a") as fl:
                     fl.write(f"{datetime.now().isoformat()} WARNING cookie "
                              f"{found.name} age {age_hours:.1f}h - may need re-login\n")
             except OSError:
@@ -103,7 +118,7 @@ class UploadService:
                              "burn metered proxy GB for a shadowbanned post. "
                              "Fix proxy.endpoint first.")
                 try:
-                    with open(lib.failed_log(), "a", encoding="utf-8") as ff:
+                    with open(failed_dir(), "a", encoding="utf-8") as ff:
                         ff.write(f"{datetime.now().isoformat()} ABORTED proxy "
                                  f"geo check failed: {detail}\n")
                 except OSError:
@@ -147,7 +162,7 @@ class UploadService:
             logger.info("Product Folder   : %s", sidecar.get("product_folder"))
             logger.info("Sound            : %s", sidecar.get("sound_name"))
             logger.info("Hashtags         : %s", sidecar.get("hashtags"))
-            logger.info("Session User     : %s", lib.OWN_HANDLE)
+            logger.info("Session User     : %s", OWN_HANDLE)
 
             if not self.verify_proxy():
                 return UploadResult(success=False, error_message="Proxy verification failed")
@@ -157,7 +172,7 @@ class UploadService:
             logger.info("Anti-bot jitter sleeping %ss before upload...", delay)
             time.sleep(delay)
 
-            session_user = lib.OWN_HANDLE
+            session_user = OWN_HANDLE
             products = [{"product_id": product_id, "caption": safe_caption}] if product_id else []
             max_retries = 2
             last_exc = None
@@ -219,7 +234,7 @@ class UploadService:
         try:
             from services.repositories import Database
             from services.utils.db_utils import ensure_schema
-            conn = Database(lib.db_path())
+            conn = Database(db_path())
             ensure_schema(conn.conn)  # type: ignore
             vid_id = (f"{sidecar.get('product_folder', 'unk')}_"
                       f"{int(time.time())}_{random.randint(1000, 9999)}")
@@ -241,7 +256,7 @@ class UploadService:
     def _cleanup_success(self, mp4: Path, sidecar: dict, product_id: str, title: str) -> None:
         """Clean up after successful upload."""
         try:
-            with open(lib.success_log(), "a", encoding="utf-8") as sf:
+            with open(success_log(), "a", encoding="utf-8") as sf:
                 sf.write(f"{datetime.now().isoformat()} SUCCESS "
                          f"{mp4.name} product={sidecar.get('product_folder')} "
                          f"pid={product_id} title={title!r} "
@@ -259,9 +274,9 @@ class UploadService:
 
     def _move_to_failed(self, mp4: Path, reason: str) -> None:
         """Move failed upload to failed/ directory."""
-        lib.failed_dir().mkdir(parents=True, exist_ok=True)
+        failed_dir().mkdir(parents=True, exist_ok=True)
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-        dest_dir = lib.failed_dir() / f"{mp4.stem}_{ts}"
+        dest_dir = failed_dir() / f"{mp4.stem}_{ts}"
         dest_dir.mkdir(exist_ok=True)
         json_side, pid_side = self.sidecars.sidecar_paths(mp4)
         for p in (mp4, json_side, pid_side):

@@ -8,7 +8,7 @@ from .compliance_result import ComplianceResult
 from .upload_result import UploadResult
 from .growth_report import GrowthReport
 from .daily_summary import DailySummary
-from .proxy_status import ProxyStatus
+from .proxy_status import ProxyStatus, ProxyType
 
 __all__ = [
     "UploadJob",
@@ -23,4 +23,5 @@ __all__ = [
     "GrowthReport",
     "DailySummary",
     "ProxyStatus",
+    "ProxyType",
 ]

@@ -3,11 +3,9 @@
 from typing import Any, Dict, List, Optional
 from datetime import datetime, timedelta, timezone
 import random
-import sys
-import os
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "scripts"))
 from services.repositories import UploadRepository
+from services.utils.timezone import MYT_OFFSET, MYT
 
 
 class SchedulerService:
@@ -19,12 +17,9 @@ class SchedulerService:
     def should_post_now(self, config: Dict[str, Any]) -> bool:
         """Determine if it's time to post."""
         # MYT timezone (UTC+8)
-        MYT_OFFSET = timedelta(hours=8)
-        MYT = timezone(MYT_OFFSET)
-        
         now = datetime.now(MYT)
         posting = config.get("posting", {})
-        
+
         # Check quiet hours
         hour = now.hour
         qs = posting.get("quiet_hours_start", 2)
@@ -48,22 +43,18 @@ class SchedulerService:
         last_post = self.upload_repo.get_last_post_time()
         if last_post is None:
             return datetime.now(timezone.utc)
-        
+
         posting = config.get("posting", {})
         base = posting.get("interval_minutes", 120)
         jitter = random.uniform(-posting.get("jitter_minutes", 30),
                                 posting.get("jitter_minutes", 30))
         required = (base + jitter) * 60
-        
-        from datetime import datetime, timezone
+
         next_time = last_post + timedelta(seconds=required)
         return next_time
 
     def is_quiet_hours(self, config: Dict[str, Any]) -> bool:
         """Check if currently in quiet hours."""
-        MYT_OFFSET = timedelta(hours=8)
-        MYT = timezone(MYT_OFFSET)
-        
         now = datetime.now(MYT)
         posting = config.get("posting", {})
         hour = now.hour

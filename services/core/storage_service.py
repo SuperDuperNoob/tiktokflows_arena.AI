@@ -7,10 +7,12 @@ import sys
 import os
 import logging
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "scripts"))
 from config import get_config
 
-from services.utils.legacy import lib
+from services.utils.paths import drive_root, db_path
+from services.utils.stock import scan_stock
+from services.utils.db_utils import consumed_pending_cleanup, mark_drive_cleaned
+from services.repositories import Database
 
 logger = logging.getLogger(__name__)
 
@@ -25,7 +27,7 @@ class StorageService:
         """Sync raw videos from Google Drive to local content/raw/."""
         rclone_remote = self.config.get("google_drive", "rclone_remote", "")
         remote_path = self.config.get("google_drive", "remote_path", "")
-        local_dir = Path(lib.drive_root())
+        local_dir = Path(drive_root())
 
         if not rclone_remote or not remote_path:
             return False, {"error": "Google Drive not configured"}
@@ -105,9 +107,9 @@ class StorageService:
         from services.repositories import Database
         from services.utils.db_utils import consumed_pending_cleanup, mark_drive_cleaned
 
-        db = Database(lib.db_path())
+        db = Database(db_path())
         pending = consumed_pending_cleanup()
-        
+
         for item in pending:
             product = item["product_name"]
             filename = item["filename"]
@@ -124,4 +126,4 @@ class StorageService:
 
     def get_stock_status(self) -> Dict[str, int]:
         """Get current stock levels per product."""
-        return lib.scan_stock()
+        return scan_stock()

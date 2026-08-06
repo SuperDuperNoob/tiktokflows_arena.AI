@@ -8,10 +8,7 @@ from .analytics_repository import AnalyticsRepository
 from .event_repository import EventRepository
 from .stock_repository import StockRepository
 
-import sys
-import os
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "scripts"))
-from db import Database
+from scripts.db import Database
 
 __all__ = [
     "BaseRepository",

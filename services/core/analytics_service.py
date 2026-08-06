@@ -1,17 +1,10 @@
 """Analytics service for metrics and reporting."""
 
 from typing import Any, Dict, List, Optional
-import sys
-import os
 import logging
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "scripts"))
-from competitor_scraper import CompetitorScraper
-from reconcile_metrics import reconcile
-from generate_report import build as build_report
-
-from services.utils.legacy import lib
-
+from services.utils.analytics import reconcile as reconcile_fn, build as build_report_fn
+from services.utils.db_utils import get_conn, ensure_schema
 from services.repositories import AnalyticsRepository
 from services.models import GrowthReport, DailySummary
 
@@ -60,6 +53,7 @@ class AnalyticsService:
         """Run daily analytics jobs: scrape, reconcile, growth, report."""
         # Scrape competitor data
         try:
+            from competitor_scraper import CompetitorScraper
             scraper = CompetitorScraper(config.get("apify", {}), db)
             summary = scraper.scrape_all()
             logger.info("Scrape complete: %s", summary)
@@ -68,9 +62,9 @@ class AnalyticsService:
 
         # Reconcile metrics
         try:
-            conn = lib.get_conn()
-            lib.ensure_schema(conn)
-            stats = reconcile(conn, verbose=False)
+            conn = get_conn()
+            ensure_schema(conn)
+            stats = reconcile_fn(conn, verbose=False)
             logger.info("Reconcile: %s", stats)
             conn.close()
         except Exception as e:
@@ -78,7 +72,7 @@ class AnalyticsService:
 
         # Generate report
         try:
-            report = build_report(days=3)
+            report = build_report_fn(days=3)
             logger.info("Report generated: %s", report[:100] if report else "empty")
         except Exception as e:
             logger.error("Report failed: %s", e)
