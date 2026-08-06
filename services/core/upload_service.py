@@ -27,8 +27,12 @@ from services.infrastructure.logging import get_logger
 from services.core.metrics_service import metrics
 from services.exceptions import UploadError, ProxyError, RetryableError, FatalError
 from services.models import UploadResult
+from services.models.upload_job import UploadJob, UploadJobStatus
+from services.repositories import UploadRepository
 from services.infrastructure.tiktok_adapter import TikTokAdapter
 from services.infrastructure.sidecar_adapter import SidecarAdapter
+from services.core.recovery_manager import RecoveryManager
+from services.infrastructure.retry import retry_with_policy, UPLOAD_POLICY
 
 logger = get_logger("upload_service")
 
@@ -49,6 +53,8 @@ class UploadService:
     def __init__(self):
         self.config = get_config()
         self.sidecars = SidecarManager(queue_dir())
+        self.upload_repo = UploadRepository(db_path())
+        self.recovery_manager = RecoveryManager(self.upload_repo)
 
         # Proxy configuration
         raw_proxy = get_config().get("proxy", "endpoint", default="") or ""
@@ -130,12 +136,20 @@ class UploadService:
                        "(set proxy.geo_check=false to skip)")
         return True
 
+    @retry_with_policy(UPLOAD_POLICY)
+    def _upload_with_retry(self, session_user: str, video_path: str, title: str,
+                           products: List[Dict], proxy: Optional[str]) -> bool:
+        """Upload a single video with retry policy."""
+        return self.tiktok_adapter.upload_video(
+            session_user=session_user,
+            video=video_path,
+            title=title,
+            products=products,
+            proxy=proxy
+        )
+
     def process_upload_queue(self) -> UploadResult:
-        """Process the next video in the upload queue."""
-        # Record job lifecycle start
-        job_id = f"upload_{int(time.time())}_{random.randint(1000, 9999)}"
-        metrics.increment_counter("jobs_started", labels={"job_type": "upload"})
-        
+        """Process the next video in the upload queue with idempotency and state tracking."""
         # Acquire upload lock
         lockfile = Path("/tmp/tiktok-machine-upload.lock")
         lockfile.parent.mkdir(parents=True, exist_ok=True)
@@ -175,6 +189,43 @@ class UploadService:
                 metrics.increment_counter("jobs_failed", labels={"reason": "proxy_verification_failed"})
                 return UploadResult(success=False, error_message="Proxy verification failed")
 
+            # Idempotency: compute video hash
+            video_hash = md5_file(mp4)
+            existing = self.upload_repo.find_by_video_hash(video_hash)
+            if existing and existing.status == UploadJobStatus.SUCCESS:
+                logger.info("Video %s already uploaded successfully (job %s), skipping", mp4.name, existing.id)
+                metrics.increment_counter("duplicate_prevented", labels={"product": sidecar.get("product_folder", "")})
+                self._cleanup_success(mp4, sidecar, sidecar.get("product_id", ""), sidecar.get("title", ""))
+                return UploadResult(success=True, error_message="Duplicate skipped")
+
+            # Create or retrieve job record
+            job = self.upload_repo.find_by_video_hash(video_hash)
+            if not job:
+                job = UploadJob(
+                    product_name=sidecar.get("product_folder", ""),
+                    product_id=sidecar.get("product_id", ""),
+                    raw_video_path=str(mp4),
+                    processed_video_path="",
+                    caption_text=sidecar.get("caption", ""),
+                    video_hash=video_hash,
+                    source_path=str(mp4),
+                    job_uuid=f"job_{int(time.time())}_{random.randint(1000,9999)}",
+                    status=UploadJobStatus.DISCOVERED,
+                )
+                job_id = self.upload_repo.create(job)
+                job.id = job_id
+            else:
+                job_id = job.id
+
+            # State transitions with audit
+            self._transition_job(job, UploadJobStatus.QUEUED, "Queued for processing")
+            self._transition_job(job, UploadJobStatus.PROCESSING, "Processing started")
+
+            if not self.verify_proxy():
+                self._transition_job(job, UploadJobStatus.FAILED, "Proxy verification failed")
+                metrics.increment_counter("jobs_failed", labels={"reason": "proxy_verification_failed"})
+                return UploadResult(success=False, error_message="Proxy verification failed")
+
             # Anti-bot jitter
             delay = random.randint(5, 90)
             logger.info("Anti-bot jitter sleeping %ss before upload...", delay)
@@ -182,72 +233,66 @@ class UploadService:
 
             session_user = OWN_HANDLE
             products = [{"product_id": product_id, "caption": safe_caption}] if product_id else []
-            max_retries = 2
-            last_exc = None
 
-            for attempt in range(1, max_retries + 1):
-                try:
-                    logger.info("Attempt %d/%d uploading %s via=%s",
-                                attempt, max_retries, mp4.name,
-                                mask_proxy(self.proxy_url) or "direct")
-                    metrics.increment_counter("upload_attempts", labels={"attempt": str(attempt)})
-                    
-                    with metrics.measure_time("upload", labels={"attempt": str(attempt)}):
-                        success = self.tiktok_adapter.upload_video(
-                            session_user=session_user,
-                            video=str(mp4),
-                            title=title,
-                            products=products,
-                            proxy=self.proxy_url
-                        )
-                    if success:
-                        logger.info("Upload SUCCESS for %s", mp4.name)
-                        metrics.increment_counter("jobs_completed", labels={"product": sidecar.get("product_folder", "")})
-                        self._log_analytics(sidecar)
-                        self._cleanup_success(mp4, sidecar, product_id, title)
-                        return UploadResult(
-                            success=True,
-                            video_path=str(mp4),
-                            product_name=sidecar.get("product_folder", ""),
-                            product_id=product_id,
-                            tiktok_video_id=None,  # Could be extracted from adapter
-                        )
-                    else:
-                        logger.error("Upload returned False (TikTok API error) attempt %d", attempt)
-                        last_exc = "API returned False"
-                        metrics.increment_counter("retries", labels={"operation": "upload", "attempt": str(attempt)})
-                        if attempt < max_retries:
-                            sleep_t = attempt * 30 + random.randint(5, 15)
-                            logger.info("Retrying in %ss...", sleep_t)
-                            time.sleep(sleep_t)
-                except Exception as e:
-                    last_exc = str(e)
-                    logger.exception("Exception attempt %d: %s", attempt, e)
-                    # Proxy transport failure = proxy dead/wrong; retrying just
-                    # re-sends the whole video through it and burns more metered GB.
-                    if self.proxy_url and is_proxy_transport_error(e):
-                        logger.error("Proxy transport error - NOT retrying to "
-                                     "protect metered proxy quota.")
-                        metrics.increment_counter("jobs_failed", labels={"reason": "proxy_transport_error", "retryable": "false"})
-                        metrics.increment_counter("retries", labels={"operation": "upload", "attempt": str(attempt), "reason": "proxy_transport_error"})
-                        break
-                    metrics.increment_counter("retries", labels={"operation": "upload", "attempt": str(attempt), "reason": type(e).__name__})
-                    if attempt < max_retries:
-                        sleep_t = attempt * 60
-                        logger.info("Retry sleep %ss", sleep_t)
-                        time.sleep(sleep_t)
+            # Upload with retry policy
+            try:
+                self._transition_job(job, UploadJobStatus.UPLOADING, "Upload attempt")
+                success = self._upload_with_retry(
+                    session_user=OWN_HANDLE,
+                    video_path=str(mp4),
+                    title=title,
+                    products=products,
+                    proxy=self.proxy_url
+                )
+            except Exception as e:
+                logger.exception("Upload failed after retries: %s", e)
+                self._handle_upload_failure(job, e)
+                return UploadResult(success=False, error_message=str(e))
 
-            logger.error("All retries failed for %s: %s", mp4.name, last_exc)
-            metrics.increment_counter("jobs_failed", labels={"reason": "max_retries_exceeded"})
-            self._move_to_failed(mp4, last_exc)
-            return UploadResult(success=False, error_message=last_exc or "All retries failed")
+            if success:
+                self._transition_job(job, UploadJobStatus.SUCCESS, "Upload succeeded")
+                metrics.increment_counter("jobs_completed", labels={"product": sidecar.get("product_folder", "")})
+                self._log_analytics(sidecar)
+                self._cleanup_success(mp4, sidecar, product_id, title)
+                return UploadResult(
+                    success=True,
+                    video_path=str(mp4),
+                    product_name=sidecar.get("product_folder", ""),
+                    product_id=product_id,
+                    tiktok_video_id=None,
+                )
+            else:
+                self._transition_job(job, UploadJobStatus.FAILED, "Upload returned False")
+                metrics.increment_counter("jobs_failed", labels={"reason": "api_false"})
+                return UploadResult(success=False, error_message="Upload returned False")
 
         except Exception as e:
             logger.exception("Upload service error: %s", e)
             metrics.increment_counter("jobs_failed", labels={"reason": "unexpected_error"})
             return UploadResult(success=False, error_message=str(e))
 
-    def _log_analytics(self, sidecar: dict) -> None:
+    def _transition_job(self, job: UploadJob, new_status: UploadJobStatus, reason: str = "") -> None:
+        """Transition job state with audit logging."""
+        old_status = job.status
+        job.status = new_status
+        job.updated_at = datetime.utcnow()
+        self.upload_repo.update_status_with_audit(job.id, new_status, old_status, reason, "upload_service")
+        logger.info("Job %s transition %s -> %s: %s", job.id, old_status.value, new_status.value, reason)
+
+    def _handle_upload_failure(self, job: UploadJob, error: Exception) -> None:
+        """Handle upload failure with retry logic."""
+        job.retry_count += 1
+        job.last_error = str(error)
+        job.updated_at = datetime.utcnow()
+
+        if job.retry_count >= job.max_retries or isinstance(error, FatalError):
+            self._transition_job(job, UploadJobStatus.DEAD_LETTER, f"Max retries or fatal error: {error}")
+            self.upload_repo.set_dead_letter(job.id, str(error))
+            metrics.increment_counter("jobs_failed", labels={"reason": "dead_letter"})
+        else:
+            self._transition_job(job, UploadJobStatus.RETRY_PENDING, f"Retry {job.retry_count}/{job.max_retries}: {error}")
+            self.upload_repo.increment_retry_count(job.id, str(error))
+            metrics.increment_counter("retries", labels={"operation": "upload", "reason": type(error).__name__})
         """Log upload to analytics database."""
         try:
             from services.repositories import Database

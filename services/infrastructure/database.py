@@ -119,7 +119,17 @@ class Database:
             # posts
             cols = {r["name"] for r in conn.execute("PRAGMA table_info(posts)")}
             for col, ddl in (("description_text", "TEXT"),
-                             ("product_tag_text", "TEXT")):
+                             ("product_tag_text", "TEXT"),
+                             ("created_at", "TEXT"),
+                             ("updated_at", "TEXT"),
+                             ("video_hash", "TEXT"),
+                             ("source_path", "TEXT"),
+                             ("job_uuid", "TEXT"),
+                             ("compliance_status", "TEXT"),
+                             ("compliance_details", "TEXT"),
+                             ("retry_count", "INTEGER DEFAULT 0"),
+                             ("max_retries", "INTEGER DEFAULT 3"),
+                             ("last_error", "TEXT")):
                 if col not in cols:
                     conn.execute(f"ALTER TABLE posts ADD COLUMN {col} {ddl}")
 

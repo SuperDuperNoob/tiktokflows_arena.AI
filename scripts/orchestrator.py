@@ -26,15 +26,7 @@ sys.path.insert(0, SCRIPTS_DIR)
 
 from services.infrastructure.config import get_config, Config
 from services.infrastructure.logging import setup_logging, get_logger
-from services.core import (
-    VideoService,
-    StorageService,
-    UploadService,
-    AnalyticsService,
-    SchedulerService,
-    ProductService,
-    ProxyService,
-)
+from services.core.recovery_manager import RecoveryManager
 from services.repositories import Database
 
 logger = get_logger("orchestrator")
@@ -100,6 +92,9 @@ class Orchestrator:
         self._shutdown_requested = False
         self._shutdown_timeout = 30  # seconds
 
+        # Recovery manager for crash recovery and job reconciliation
+        self.recovery_manager = RecoveryManager(self.upload_service.upload_repo)
+
     def run(self):
         logger.info("=" * 60)
         logger.info("TikTok Auto-Posting Machine (service-oriented) starting...")
@@ -114,6 +109,11 @@ class Orchestrator:
 
         try:
             self._do_sync()
+            # Run startup validation checks
+            self._validate_startup()
+            # Run startup reconciliation to recover any unfinished jobs
+            recon_result = self.recovery_manager.run_startup_reconciliation()
+            logger.info("Startup reconciliation result: %s", recon_result)
         except Exception as e:
             logger.warning("Initial sync failed: %s", e)
 
@@ -155,6 +155,49 @@ class Orchestrator:
             logger.info("Configuration reloaded successfully")
         except Exception as e:
             logger.error("Failed to reload configuration: %s", e)
+
+    def _validate_startup(self):
+        """Validate startup prerequisites."""
+        logger.info("Running startup validation checks...")
+
+        # Check database connectivity and schema
+        try:
+            with self.db._connect() as conn:
+                conn.execute("SELECT 1")
+            logger.debug("Database connectivity OK")
+        except Exception as e:
+            raise RuntimeError(f"Database connectivity failed: {e}")
+
+        # Check required directories exist
+        from services.utils.paths import drive_root, queue_dir, processed_dir, failed_dir
+        for d in [drive_root(), queue_dir(), processed_dir(), failed_dir()]:
+            if not d.exists():
+                logger.warning("Directory %s does not exist, creating", d)
+                d.mkdir(parents=True, exist_ok=True)
+
+        # Check upload queue consistency: no orphaned .mp4 without sidecar
+        queue = queue_dir()
+        orphaned = 0
+        for mp4 in queue.glob("*.mp4"):
+            json_side, pid_side = self.upload_service.sidecars.sidecar_paths(mp4)
+            if not json_side.exists() and not pid_side.exists():
+                logger.warning("Orphaned video file without sidecar: %s", mp4)
+                orphaned += 1
+        if orphaned:
+            logger.warning("Found %d orphaned video files in queue", orphaned)
+
+        # Check processed directory for orphaned files
+        processed = processed_dir()
+        proc_orphaned = 0
+        for mp4 in processed.glob("*.mp4"):
+            json_side, pid_side = self.upload_service.sidecars.sidecar_paths(mp4)
+            if not json_side.exists() and not pid_side.exists():
+                logger.warning("Orphaned processed video without sidecar: %s", mp4)
+                proc_orphaned += 1
+        if proc_orphaned:
+            logger.warning("Found %d orphaned processed videos", proc_orphaned)
+
+        logger.info("Startup validation completed")
 
     def _shutdown(self):
         """Perform graceful shutdown."""
