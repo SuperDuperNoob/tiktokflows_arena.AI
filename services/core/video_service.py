@@ -32,8 +32,8 @@ logger = logging.getLogger(__name__)
 class VideoService:
     """Service for video processing and transformation."""
 
-    def __init__(self):
-        self.stock_repo = StockRepository()
+    def __init__(self, db_path: str):
+        self.stock_repo = StockRepository(db_path)
         self.ffmpeg = FFmpegAdapter()
         self.skia = SkiaAdapter()
 

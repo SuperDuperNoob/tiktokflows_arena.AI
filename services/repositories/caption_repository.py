@@ -10,6 +10,9 @@ from services.models.caption import Caption, CaptionSource
 class CaptionRepository(BaseRepository):
     """Repository for caption operations."""
 
+    def __init__(self, db_path: str):
+        super().__init__(db_path)
+
     def get_table_name(self) -> str:
         return "caption_pool"
 

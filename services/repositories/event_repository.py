@@ -10,6 +10,9 @@ from .base import BaseRepository
 class EventRepository(BaseRepository):
     """Repository for system event operations."""
 
+    def __init__(self, db_path: str):
+        super().__init__(db_path)
+
     def get_table_name(self) -> str:
         return "system_events"
 

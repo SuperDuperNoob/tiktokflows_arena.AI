@@ -14,6 +14,9 @@ from .base import BaseRepository
 class StockRepository(BaseRepository):
     """Repository for raw stock operations."""
 
+    def __init__(self, db_path: str):
+        super().__init__(db_path)
+
     def get_table_name(self) -> str:
         return "raw_stock"
 

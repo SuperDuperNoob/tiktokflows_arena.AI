@@ -9,9 +9,9 @@ from services.models import Product
 class ProductService:
     """Service for product management."""
 
-    def __init__(self):
-        self.product_repo = ProductRepository()
-        self.stock_repo = StockRepository()
+    def __init__(self, db_path: str):
+        self.product_repo = ProductRepository(db_path)
+        self.stock_repo = StockRepository(db_path)
 
     def get_all_products(self) -> List[Dict[str, Any]]:
         """Get all products with stock info."""

@@ -4,22 +4,13 @@ from abc import ABC, abstractmethod
 from contextlib import contextmanager
 from typing import Any, Dict, Generator, List, Optional
 import sqlite3
-import sys
-import os
-
-# Add scripts directory to path for config import
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "scripts"))
-
-import config
 
 
 class BaseRepository(ABC):
     """Base repository with common database operations."""
 
-    def __init__(self, db_path: Optional[str] = None):
-        cfg = config.Config.get_instance()
-        self._db_path = db_path or cfg.get("logging", "db_path", "logs/tiktok.db")
-        self._conn: Optional[sqlite3.Connection] = None
+    def __init__(self, db_path: str):
+        self._db_path = db_path
 
     @contextmanager
     def connection(self) -> Generator[sqlite3.Connection, None, None]:

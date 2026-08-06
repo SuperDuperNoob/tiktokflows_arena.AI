@@ -20,8 +20,8 @@ logger = logging.getLogger(__name__)
 class AnalyticsService:
     """Service for analytics and reporting."""
 
-    def __init__(self):
-        self.analytics_repo = AnalyticsRepository()
+    def __init__(self, db_path: str):
+        self.analytics_repo = AnalyticsRepository(db_path)
 
     def get_dashboard_data(self) -> Dict[str, Any]:
         """Get dashboard analytics data."""

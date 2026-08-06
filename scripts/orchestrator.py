@@ -28,18 +28,13 @@ import yaml
 
 from config import get_config
 from services.core import (
-    UploadService,
     VideoService,
     StorageService,
-    ComplianceService,
-    CaptionService,
+    UploadService,
     AnalyticsService,
     SchedulerService,
-    NotificationService,
     ProductService,
     ProxyService,
-    AIService,
-    AuthService,
 )
 from services.repositories import Database
 
@@ -56,18 +51,13 @@ class Orchestrator:
     def __init__(
         self,
         config_path: str,
-        upload_service: Optional["UploadService"] = None,
         video_service: Optional["VideoService"] = None,
         storage_service: Optional["StorageService"] = None,
-        compliance_service: Optional["ComplianceService"] = None,
-        caption_service: Optional["CaptionService"] = None,
+        upload_service: Optional["UploadService"] = None,
         analytics_service: Optional["AnalyticsService"] = None,
         scheduler_service: Optional["SchedulerService"] = None,
-        notification_service: Optional["NotificationService"] = None,
         product_service: Optional["ProductService"] = None,
         proxy_service: Optional["ProxyService"] = None,
-        ai_service: Optional["AIService"] = None,
-        auth_service: Optional["AuthService"] = None,
     ):
         self.config_path = config_path
         with open(config_path, "r", encoding="utf-8") as f:
@@ -91,23 +81,17 @@ class Orchestrator:
 
         # Initialize services (inject or create defaults)
         from services.core import (
-            UploadService, VideoService, StorageService, ComplianceService,
-            CaptionService, AnalyticsService, SchedulerService,
-            NotificationService, ProductService, ProxyService,
-            AIService, AuthService,
+            VideoService, StorageService, UploadService,
+            AnalyticsService, SchedulerService,
+            ProductService, ProxyService,
         )
-        self.upload_service = upload_service or UploadService()
-        self.video_service = video_service or VideoService()
+        self.video_service = video_service or VideoService(db_path)
         self.storage_service = storage_service or StorageService()
-        self.compliance_service = compliance_service or ComplianceService()
-        self.caption_service = caption_service or CaptionService()
-        self.analytics_service = analytics_service or AnalyticsService()
-        self.scheduler_service = scheduler_service or SchedulerService()
-        self.notification_service = notification_service or NotificationService()
-        self.product_service = product_service or ProductService()
+        self.upload_service = upload_service or UploadService()
+        self.analytics_service = analytics_service or AnalyticsService(db_path)
+        self.scheduler_service = scheduler_service or SchedulerService(db_path)
+        self.product_service = product_service or ProductService(db_path)
         self.proxy_service = proxy_service or ProxyService()
-        self.ai_service = ai_service or AIService()
-        self.auth_service = auth_service or AuthService()
 
         # State the Telegram bot drives.
         self.paused = False
@@ -141,7 +125,7 @@ class Orchestrator:
                     time.sleep(60)
             except Exception as e:
                 logger.exception("Cycle error: %s", e)
-                self.notification_service.notify_warning("fatal", f"Orchestrator error: {e}")
+                logger.error("Orchestrator error: %s", e)
                 time.sleep(120)
 
         logger.info("Orchestrator stopped.")
@@ -158,7 +142,7 @@ class Orchestrator:
 
         sync_ok, stock_report = self._do_sync()
         if not sync_ok:
-            self.notification_service.notify_warning("sync", "Google Drive sync failed. Skipping this cycle.")
+            logger.warning("Google Drive sync failed. Skipping this cycle.")
             return
 
         # Quality gate
@@ -176,23 +160,23 @@ class Orchestrator:
             rc = self.video_service.run()
             if rc != 0:
                 logger.error("Video render failed with code %s", rc)
-                self.notification_service.notify_warning("render", f"Video render failed with code {rc}")
                 return
         except Exception as e:
             logger.error("Video render failed: %s", e)
-            self.notification_service.notify_warning("render", f"Video render failed: {e}")
             return
 
         # Upload one queued video
         try:
             upload_result = self.upload_service.process_upload_queue()
-            rc = 0 if upload_result.success else 1
+            if not upload_result.success:
+                logger.error("Upload failed: %s", upload_result.error_message)
+                return
+            rc = 0
         except Exception as e:
             logger.error("Uploader failed: %s", e)
-            self.notification_service.notify_warning("upload", f"Uploader error: {e}")
             return
 
-        # Notify on the outcome
+        # Notify on the outcome (logging for now)
         posted_today = self.db.get_posted_count_today()
         target = self.config.get("posting", {}).get("daily_post_target", 7)
         if rc == 0:
@@ -200,8 +184,7 @@ class Orchestrator:
             posted = self.db.get_posts_today()
             if posted:
                 caption = posted[0].get("caption_text", "")
-            self.notification_service.notify_upload_success(
-                "video", caption, stock_report or {}, posted_today, target)
+            logger.info("Upload SUCCESS: %s", caption)
             # Sync out
             try:
                 sync_ok, _ = self.storage_service.sync_to_drive()
@@ -210,8 +193,7 @@ class Orchestrator:
             except Exception as e:
                 logger.warning("sync_out failed (retries next cycle): %s", e)
         else:
-            self.notification_service.notify_upload_failure(
-                "video", "Upload failed after retries", "", will_retry=True)
+            logger.error("Upload failed after retries")
 
     def _check_daily_jobs(self):
         """Once per MYT day: scrape, reconcile, growth (≤1 AI call), report."""

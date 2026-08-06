@@ -10,6 +10,9 @@ from services.models.upload_job import UploadJob, UploadJobStatus
 class UploadRepository(BaseRepository):
     """Repository for upload job operations."""
 
+    def __init__(self, db_path: str):
+        super().__init__(db_path)
+
     def get_table_name(self) -> str:
         return "posts"
 

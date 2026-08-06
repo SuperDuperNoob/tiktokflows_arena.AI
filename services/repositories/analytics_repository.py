@@ -14,6 +14,9 @@ from config import get_config
 class AnalyticsRepository(BaseRepository):
     """Repository for analytics operations."""
 
+    def __init__(self, db_path: str):
+        super().__init__(db_path)
+
     def get_table_name(self) -> str:
         return "videos"  # Virtual table name
 
@@ -32,7 +35,7 @@ class AnalyticsRepository(BaseRepository):
 
     def get_recent_posts(self, days: int = 3) -> List[Dict[str, Any]]:
         """Get recent posts with metrics."""
-        since = (date.today() - datetime.timedelta(days=days)).isoformat()
+        since = (date.today() - timedelta(days=days)).isoformat()
         query = """
             WITH latest AS (
                 SELECT video_id, views, likes, shares, comments, snap_date,
@@ -62,7 +65,7 @@ class AnalyticsRepository(BaseRepository):
 
     def get_own_performance(self, days: int = 7) -> List[Dict[str, Any]]:
         """Get own performance by product."""
-        since = (date.today() - datetime.timedelta(days=days)).isoformat()
+        since = (date.today() - timedelta(days=days)).isoformat()
         query = """
             WITH latest AS (
                 SELECT video_id, views, likes, shares, comments, snap_date,
@@ -92,7 +95,7 @@ class AnalyticsRepository(BaseRepository):
     def get_views_delta(self, days: int = 1) -> int:
         """Get views delta over specified days."""
         today = date.today().isoformat()
-        prior = (date.today() - datetime.timedelta(days=days)).isoformat()
+        prior = (date.today() - timedelta(days=days)).isoformat()
         query = """
             WITH snap AS (
                 SELECT video_id, views,

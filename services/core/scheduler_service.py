@@ -13,8 +13,8 @@ from services.repositories import UploadRepository
 class SchedulerService:
     """Service for scheduling and timing management."""
 
-    def __init__(self):
-        self.upload_repo = UploadRepository()
+    def __init__(self, db_path: str):
+        self.upload_repo = UploadRepository(db_path)
 
     def should_post_now(self, config: Dict[str, Any]) -> bool:
         """Determine if it's time to post."""
