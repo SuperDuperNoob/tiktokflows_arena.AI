@@ -234,6 +234,7 @@ class Config:
         if os.environ.get("TESTING") == "1":
             return
         missing = []
+        invalid = []
         for section, keys in self.REQUIRED_KEYS.items():
             section_data = self._data.get(section, {})
             for key in keys:
@@ -242,8 +243,52 @@ class Config:
                                            "http://USER:PASS@HOST:PORT", "YOUR_BOT_TOKEN_HERE"):
                     missing.append(f"{section}.{key}")
 
+        # Additional validation
+        # Proxy validation
+        proxy_endpoint = self._data.get("proxy", {}).get("endpoint", "")
+        if proxy_endpoint and not self._is_valid_proxy_url(proxy_endpoint):
+            invalid.append("proxy.endpoint: invalid proxy URL format")
+
+        # AI validation
+        ai_config = self._data.get("ai", {})
+        if ai_config.get("enable_ai") and not ai_config.get("api_key"):
+            invalid.append("ai.api_key: required when enable_ai is true")
+
+        # Encoding validation
+        encoding = self._data.get("encoding", {})
+        crf = encoding.get("crf", 23)
+        if not isinstance(crf, int) or crf < 0 or crf > 51:
+            invalid.append("encoding.crf: must be integer between 0 and 51")
+
+        # Posting validation
+        posting = self._data.get("posting", {})
+        interval = posting.get("interval_minutes", 120)
+        if not isinstance(interval, int) or interval < 1:
+            invalid.append("posting.interval_minutes: must be positive integer")
+
+        # Timezone validation
+        tz = self._data.get("timezone", {}).get("tz", "Asia/Kuala_Lumpur")
+        try:
+            import zoneinfo
+            zoneinfo.ZoneInfo(tz)
+        except Exception:
+            invalid.append(f"timezone.tz: invalid timezone '{tz}'")
+
         if missing:
             raise ConfigError(f"Missing required config keys: {', '.join(missing)}")
+        if invalid:
+            raise ConfigError(f"Invalid config values: {'; '.join(invalid)}")
+
+    def _is_valid_proxy_url(self, url: str) -> bool:
+        """Validate proxy URL format."""
+        if not url:
+            return False
+        try:
+            from urllib.parse import urlparse
+            parsed = urlparse(url if "://" in url else f"http://{url}")
+            return bool(parsed.scheme and parsed.netloc)
+        except Exception:
+            return False
 
     def _resolve_paths(self) -> None:
         """Resolve relative paths to absolute."""

@@ -6,6 +6,9 @@ import random
 
 from services.repositories import UploadRepository
 from services.utils.timezone import MYT_OFFSET, MYT
+from services.infrastructure.logging import get_logger
+
+logger = get_logger(__name__)
 
 
 class SchedulerService:

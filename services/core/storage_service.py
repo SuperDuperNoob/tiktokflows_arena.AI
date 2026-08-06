@@ -3,15 +3,15 @@
 from typing import Any, Dict, List, Optional
 from pathlib import Path
 import subprocess
-import logging
 
 from services.infrastructure.config import get_config
 from services.utils.paths import drive_root, db_path
 from services.utils.stock import scan_stock
 from services.utils.db_utils import consumed_pending_cleanup, mark_drive_cleaned
 from services.infrastructure.database import Database
+from services.infrastructure.logging import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class StorageService:

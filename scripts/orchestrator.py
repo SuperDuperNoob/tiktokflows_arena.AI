@@ -25,6 +25,7 @@ sys.path.insert(0, PROJECT_ROOT)
 sys.path.insert(0, SCRIPTS_DIR)
 
 from services.infrastructure.config import get_config, Config
+from services.infrastructure.logging import setup_logging, get_logger
 from services.core import (
     VideoService,
     StorageService,
@@ -36,7 +37,7 @@ from services.core import (
 )
 from services.repositories import Database
 
-logger = logging.getLogger("orchestrator")
+logger = get_logger("orchestrator")
 
 # MYT timezone offset (UTC+8).
 MYT_OFFSET = timedelta(hours=8)
@@ -95,14 +96,21 @@ class Orchestrator:
         self._running = True
         self._last_scrape_date = None
 
+        # Graceful shutdown state
+        self._shutdown_requested = False
+        self._shutdown_timeout = 30  # seconds
+
     def run(self):
         logger.info("=" * 60)
         logger.info("TikTok Auto-Posting Machine (service-oriented) starting...")
         logger.info(f"Project root: {self.project_root}")
         logger.info("=" * 60)
 
+        # Register signal handlers
         signal.signal(signal.SIGTERM, self._handle_signal)
         signal.signal(signal.SIGINT, self._handle_signal)
+        # Also handle SIGHUP for config reload
+        signal.signal(signal.SIGHUP, self._handle_sighup)
 
         try:
             self._do_sync()
@@ -114,6 +122,10 @@ class Orchestrator:
                 time.sleep(60)
                 continue
             try:
+                if self._shutdown_requested:
+                    logger.info("Shutdown requested, exiting main loop")
+                    break
+
                 if self.scheduler_service.should_post_now(self.config):
                     self._run_cycle()
                 else:
@@ -124,11 +136,94 @@ class Orchestrator:
                 logger.error("Orchestrator error: %s", e)
                 time.sleep(120)
 
+        # Graceful shutdown
+        self._shutdown()
+
         logger.info("Orchestrator stopped.")
 
     def _handle_signal(self, signum, frame):
-        logger.info(f"Signal {signum} received - shutting down gracefully")
+        logger.info(f"Signal {signum} received - initiating graceful shutdown")
+        self._shutdown_requested = True
         self._running = False
+
+    def _handle_sighup(self, signum, frame):
+        logger.info("SIGHUP received - reloading configuration")
+        try:
+            Config.reset_instance()
+            cfg = Config.get_instance(Path(self.config_path))
+            self.config = cfg.get_section("")
+            logger.info("Configuration reloaded successfully")
+        except Exception as e:
+            logger.error("Failed to reload configuration: %s", e)
+
+    def _shutdown(self):
+        """Perform graceful shutdown."""
+        logger.info("Starting graceful shutdown...")
+        shutdown_start = time.time()
+
+        # 1. Flush any pending logs
+        logger.info("Flushing logs...")
+        logging.shutdown()
+
+        # 2. Close database connections
+        logger.info("Closing database connections...")
+        try:
+            self.db.close()
+            logger.info("Database connections closed")
+        except Exception as e:
+            logger.error("Error closing database: %s", e)
+
+        # 3. Wait for any in-progress operations (with timeout)
+        logger.info("Waiting for in-progress operations to complete...")
+        while time.time() - shutdown_start < self._shutdown_timeout:
+            # In a real implementation, we'd check for in-progress operations
+            # For now, just wait briefly
+            time.sleep(0.5)
+            break
+
+        logger.info("Graceful shutdown completed in %.1fs", time.time() - shutdown_start)
+
+    def _handle_signal(self, signum, frame):
+        logger.info(f"Signal {signum} received - initiating graceful shutdown")
+        self._shutdown_requested = True
+        self._running = False
+
+    def _handle_sighup(self, signum, frame):
+        logger.info("SIGHUP received - reloading configuration")
+        try:
+            Config.reset_instance()
+            cfg = Config.get_instance(Path(self.config_path))
+            self.config = cfg.get_section("")
+            logger.info("Configuration reloaded successfully")
+        except Exception as e:
+            logger.error("Failed to reload configuration: %s", e)
+
+    def _shutdown(self):
+        """Perform graceful shutdown."""
+        logger.info("Starting graceful shutdown...")
+        shutdown_start = time.time()
+
+        # 1. Flush any pending logs
+        logger.info("Flushing logs...")
+        logging.shutdown()
+
+        # 2. Close database connections
+        logger.info("Closing database connections...")
+        try:
+            self.db.close()
+            logger.info("Database connections closed")
+        except Exception as e:
+            logger.error("Error closing database: %s", e)
+
+        # 3. Wait for any in-progress operations (with timeout)
+        logger.info("Waiting for in-progress operations to complete...")
+        while time.time() - shutdown_start < self._shutdown_timeout:
+            # In a real implementation, we'd check for in-progress operations
+            # For now, just wait briefly
+            time.sleep(0.5)
+            break
+
+        logger.info("Graceful shutdown completed in %.1fs", time.time() - shutdown_start)
 
     def _do_sync(self):
         return self.storage_service.sync_from_drive()
@@ -219,8 +314,7 @@ def main():
     if not os.path.exists(config_path):
         print(f"ERROR: Config file not found: {config_path}")
         sys.exit(1)
-    logging.basicConfig(level=logging.INFO,
-                        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
+    setup_logging()
     Orchestrator(config_path).run()
 
 

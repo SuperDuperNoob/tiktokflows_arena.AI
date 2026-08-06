@@ -4,6 +4,9 @@ from typing import Any, Dict, List, Optional
 
 from services.infrastructure.proxy_adapter import ProxyAdapter
 from services.models import ProxyStatus
+from services.infrastructure.logging import get_logger
+
+logger = get_logger(__name__)
 
 
 class ProxyService:

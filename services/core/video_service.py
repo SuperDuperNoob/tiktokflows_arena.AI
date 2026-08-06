@@ -31,6 +31,8 @@ from services.utils.paths import (
 from services.utils.quality import MIN_MB_PER_SEC, MIN_OUTPUT_FRAMES
 from services.utils.timezone import OWN_HANDLE, RIVAL_HANDLE
 from services.utils.db_utils import mark_raw_consumed, get_conn, ensure_schema
+from services.infrastructure.logging import get_logger
+
 import json
 import random
 import hashlib
@@ -38,6 +40,8 @@ import time
 import sqlite3
 import shutil
 from datetime import datetime
+
+logger = get_logger("video_service")
 from caption_policy import (is_too_long, scan_caption, shorten, soften, soften_claims)
 from sidecar_manager import SidecarManager
 from transform_video import TIKTOK_STYLES, TextRenderer, pick_style

@@ -5,7 +5,6 @@ from datetime import datetime, timezone
 from pathlib import Path
 import hashlib
 import json
-import logging
 import os
 import random
 import shutil
@@ -24,12 +23,14 @@ from services.utils.proxy import (
     normalize_proxy_url,
 )
 from services.utils.db_utils import mark_raw_consumed, get_conn, ensure_schema
-
+from services.infrastructure.logging import get_logger
+from services.core.metrics_service import metrics
+from services.exceptions import UploadError, ProxyError, RetryableError, FatalError
 from services.models import UploadResult
 from services.infrastructure.tiktok_adapter import TikTokAdapter
 from services.infrastructure.sidecar_adapter import SidecarAdapter
 
-logger = logging.getLogger("upload_service")
+logger = get_logger("upload_service")
 
 
 def env_flag(name: str, default: bool = False) -> bool:
@@ -131,6 +132,10 @@ class UploadService:
 
     def process_upload_queue(self) -> UploadResult:
         """Process the next video in the upload queue."""
+        # Record job lifecycle start
+        job_id = f"upload_{int(time.time())}_{random.randint(1000, 9999)}"
+        metrics.increment_counter("jobs_started", labels={"job_type": "upload"})
+        
         # Acquire upload lock
         lockfile = Path("/tmp/tiktok-machine-upload.lock")
         lockfile.parent.mkdir(parents=True, exist_ok=True)
@@ -139,12 +144,14 @@ class UploadService:
                 fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
             except OSError:
                 logger.info("Another upload in progress, skipping")
+                metrics.increment_counter("jobs_skipped", labels={"reason": "lock_contention"})
                 return UploadResult(success=False, error_message="Another upload in progress")
 
         try:
             cands = self.sidecars.find()
             if not cands:
                 logger.info("No video+sidecar found - ensure video_processor ran")
+                metrics.increment_counter("jobs_skipped", labels={"reason": "no_candidates"})
                 return UploadResult(success=False, error_message="No video+sidecar found")
 
             # Pick the newest with a sidecar
@@ -165,6 +172,7 @@ class UploadService:
             logger.info("Session User     : %s", OWN_HANDLE)
 
             if not self.verify_proxy():
+                metrics.increment_counter("jobs_failed", labels={"reason": "proxy_verification_failed"})
                 return UploadResult(success=False, error_message="Proxy verification failed")
 
             # Anti-bot jitter
@@ -182,15 +190,19 @@ class UploadService:
                     logger.info("Attempt %d/%d uploading %s via=%s",
                                 attempt, max_retries, mp4.name,
                                 mask_proxy(self.proxy_url) or "direct")
-                    success = self.tiktok_adapter.upload_video(
-                        session_user=session_user,
-                        video=str(mp4),
-                        title=title,
-                        products=products,
-                        proxy=self.proxy_url
-                    )
+                    metrics.increment_counter("upload_attempts", labels={"attempt": str(attempt)})
+                    
+                    with metrics.measure_time("upload", labels={"attempt": str(attempt)}):
+                        success = self.tiktok_adapter.upload_video(
+                            session_user=session_user,
+                            video=str(mp4),
+                            title=title,
+                            products=products,
+                            proxy=self.proxy_url
+                        )
                     if success:
                         logger.info("Upload SUCCESS for %s", mp4.name)
+                        metrics.increment_counter("jobs_completed", labels={"product": sidecar.get("product_folder", "")})
                         self._log_analytics(sidecar)
                         self._cleanup_success(mp4, sidecar, product_id, title)
                         return UploadResult(
@@ -203,6 +215,7 @@ class UploadService:
                     else:
                         logger.error("Upload returned False (TikTok API error) attempt %d", attempt)
                         last_exc = "API returned False"
+                        metrics.increment_counter("retries", labels={"operation": "upload", "attempt": str(attempt)})
                         if attempt < max_retries:
                             sleep_t = attempt * 30 + random.randint(5, 15)
                             logger.info("Retrying in %ss...", sleep_t)
@@ -215,18 +228,23 @@ class UploadService:
                     if self.proxy_url and is_proxy_transport_error(e):
                         logger.error("Proxy transport error - NOT retrying to "
                                      "protect metered proxy quota.")
+                        metrics.increment_counter("jobs_failed", labels={"reason": "proxy_transport_error", "retryable": "false"})
+                        metrics.increment_counter("retries", labels={"operation": "upload", "attempt": str(attempt), "reason": "proxy_transport_error"})
                         break
+                    metrics.increment_counter("retries", labels={"operation": "upload", "attempt": str(attempt), "reason": type(e).__name__})
                     if attempt < max_retries:
                         sleep_t = attempt * 60
                         logger.info("Retry sleep %ss", sleep_t)
                         time.sleep(sleep_t)
 
             logger.error("All retries failed for %s: %s", mp4.name, last_exc)
+            metrics.increment_counter("jobs_failed", labels={"reason": "max_retries_exceeded"})
             self._move_to_failed(mp4, last_exc)
             return UploadResult(success=False, error_message=last_exc or "All retries failed")
 
         except Exception as e:
             logger.exception("Upload service error: %s", e)
+            metrics.increment_counter("jobs_failed", labels={"reason": "unexpected_error"})
             return UploadResult(success=False, error_message=str(e))
 
     def _log_analytics(self, sidecar: dict) -> None:

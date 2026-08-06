@@ -1,7 +1,6 @@
 """Analytics service for metrics and reporting."""
 
 from typing import Any, Dict, List, Optional
-import logging
 
 from services.utils.analytics import reconcile as reconcile_fn, build as build_report_fn
 from services.utils.db_utils import get_conn, ensure_schema
@@ -9,8 +8,9 @@ from services.repositories import AnalyticsRepository
 from services.models import GrowthReport, DailySummary
 from services.infrastructure.config import get_config
 from services.infrastructure.database import Database
+from services.infrastructure.logging import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class AnalyticsService:

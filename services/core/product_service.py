@@ -4,6 +4,9 @@ from typing import Any, Dict, List, Optional
 
 from services.repositories import ProductRepository, StockRepository
 from services.models import Product
+from services.infrastructure.logging import get_logger
+
+logger = get_logger(__name__)
 
 
 class ProductService:
@@ -17,7 +20,7 @@ class ProductService:
         """Get all products with stock info."""
         products = self.product_repo.get_all()
         stock_counts = self.stock_repo.get_stock_counts()
-        
+
         result = []
         for p in products:
             p.stock_count = stock_counts.get(p.name, 0)
@@ -33,38 +36,7 @@ class ProductService:
             return product.to_dict()
         return None
 
-    def add_product(self, name: str, product_id: str, description: Optional[str] = None,
-                    keywords: Optional[List[str]] = None,
-                    yellow_bag_tags: Optional[List[str]] = None) -> Dict[str, Any]:
-        """Add a new product."""
-        product = Product(
-            name=name,
-            product_id=product_id,
-            description=description,
-            keywords=keywords or [],
-            yellow_bag_tags=yellow_bag_tags or [],
-        )
+    def save_product(self, product: Product) -> None:
+        """Save a product."""
         self.product_repo.save(product)
-        return product.to_dict()
-
-    def update_product(self, name: str, **kwargs) -> Optional[Dict[str, Any]]:
-        """Update a product."""
-        product = self.product_repo.get_by_name(name)
-        if not product:
-            return None
-        
-        for key, value in kwargs.items():
-            if hasattr(product, key):
-                setattr(product, key, value)
-        
-        self.product_repo.save(product)
-        return product.to_dict()
-
-    def get_stock_status(self) -> Dict[str, int]:
-        """Get stock levels for all products."""
-        return self.stock_repo.get_stock_counts()
-
-    def check_low_stock(self, threshold: int = 5) -> List[str]:
-        """Get list of products with low stock."""
-        stock_counts = self.stock_repo.get_stock_counts()
-        return [p for p, count in stock_counts.items() if count < threshold]
+        logger.info("Product saved: %s", product.name)
