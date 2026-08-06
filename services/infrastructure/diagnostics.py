@@ -17,6 +17,7 @@ from typing import Any, Dict, List, Optional
 from services.infrastructure.config import get_config
 from services.infrastructure.database import Database
 from services.infrastructure.logging import get_logger
+from services.infrastructure.security_audit import SecretMasker
 from services.utils.paths import db_path, drive_root
 
 logger = get_logger(__name__)
@@ -98,33 +99,8 @@ def get_config_summary() -> Dict[str, Any]:
         cfg = get_config()
         config = cfg.get_section("")
 
-        # Remove sensitive values
-        sensitive_keys = [
-            "api_key",
-            "token",
-            "password",
-            "secret",
-            "bot_token",
-            "allowed_user_id",
-            "endpoint",
-        ]
-
-        def sanitize(obj: Any, path: str = "") -> Any:
-            if isinstance(obj, dict):
-                result = {}
-                for k, v in obj.items():
-                    full_path = f"{path}.{k}" if path else k
-                    if any(sensitive in k.lower() for sensitive in sensitive_keys):
-                        result[k] = "***REDACTED***"
-                    else:
-                        result[k] = sanitize(v, full_path)
-                return result
-            elif isinstance(obj, list):
-                return [sanitize(item, path) for item in obj]
-            else:
-                return obj
-
-        return sanitize(config)
+        # Use SecretMasker for thorough sanitization
+        return SecretMasker.mask_dict(config)
 
     except Exception as exc:
         return {"error": f"Failed to get config: {exc}"}
@@ -195,6 +171,7 @@ def get_database_info() -> Dict[str, Any]:
                 "path": str(db_file),
                 "size_mb": round(stat.st_size / (1024 * 1024), 2),
                 "modified": datetime.fromtimestamp(stat.st_mtime).isoformat(),
+                "permissions": oct(stat.st_mode)[-3:],
             }
 
         # Get table info

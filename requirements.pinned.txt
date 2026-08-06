@@ -1,0 +1,148 @@
+# =============================================================================
+# TikTok Auto-Posting Machine — Pinned Production Dependencies
+# =============================================================================
+# Generated: 2026-08-06
+# Run: pip install -r requirements.pinned.txt
+# Update: pip-compile requirements.in (requires pip-tools)
+# =============================================================================
+
+# Configuration
+PyYAML==6.0.1
+
+# HTTP clients
+httpx==0.27.2
+requests==2.32.3
+
+# Telegram bot
+python-telegram-bot==21.6
+
+# Utilities
+python-dotenv==1.0.1
+
+# Web interface (FastAPI + Uvicorn)
+fastapi==0.115.0
+uvicorn==0.30.6
+pydantic==2.9.2
+python-multipart==0.0.9
+
+# Text rendering for video overlays (emoji-capable)
+# Skia is preferred (low RAM ~30MB)
+skia-python==105.0.0
+
+# Shared with TiktokAutoUploader
+beautifulsoup4==4.12.3
+fake-useragent==1.5.1
+requests-auth-aws-sigv4==0.7.0
+
+# Test suite (dev dependency)
+pytest==8.3.5
+typeguard==4.4.2
+anyio==4.8.0
+hypothesis==6.130.5
+pluggy==1.5.0
+
+# Process monitoring (for diagnostics)
+psutil==6.0.0
+
+# =============================================================================
+# Transitive dependencies (pinned for reproducible builds)
+# =============================================================================
+# PyYAML deps: none
+# httpx deps:
+certifi==2024.8.30
+httpcore==1.0.7
+idna==3.10
+sniffio==1.3.1
+# requests deps:
+charset-normalizer==3.3.2
+urllib3==2.2.3
+# python-telegram-bot deps:
+aiohttp==3.10.5
+aiosignal==1.3.2
+async-timeout==4.0.3
+attrs==24.2.0
+Brotli==1.1.0
+frozenlist==1.5.0
+multidict==6.1.0
+yarl==1.18.3
+# fastapi deps:
+starlette==0.38.6
+typing-extensions==4.12.2
+# uvicorn deps:
+click==8.1.7
+colorama==0.4.6
+h11==0.14.0
+# pydantic deps:
+annotated-types==0.7.0
+pydantic-core==2.27.2
+# python-multipart deps: none
+# skia-python deps: none (binary wheel)
+# beautifulsoup4 deps:
+soupsieve==2.6
+# fake-useragent deps:
+platformdirs==4.3.6
+# requests-auth-aws-sigv4 deps:
+botocore==1.35.10
+jmespath==1.0.1
+python-dateutil==2.9.0.post0
+six==1.16.0
+# pytest deps:
+iniconfig==2.0.0
+packaging==24.1
+# typeguard deps: none
+# anyio deps:
+idna==3.10
+sniffio==1.3.1
+# hypothesis deps:
+sortedcontainers==2.4.0
+# pluggy deps: none
+# psutil deps: none
+# aiohttp deps:
+aiosignal==1.3.2
+async-timeout==4.0.3
+frozenlist==1.5.0
+multidict==6.1.0
+yarl==1.18.3
+# botocore deps:
+jmespath==1.0.1
+python-dateutil==2.9.0.post0
+six==1.16.0
+urllib3==2.2.3
+# starlette deps:
+exceptiongroup==1.2.2
+# pydantic-core deps:
+typing-extensions==4.12.2
+
+# =============================================================================
+# System dependencies (not in pip, install via OS package manager)
+# =============================================================================
+# - python3 (>=3.11)
+# - python3-venv
+# - python3-dev
+# - ffmpeg
+# - rclone
+# - sqlite3
+# - git
+# - curl
+# - build-essential
+# - libssl-dev
+# - libffi-dev
+# - fonts-noto-color-emoji
+# - fonts-dejavu-core
+# - Node.js (for TiktokAutoUploader signature generation)
+# - playwright-chromium (for TiktokAutoUploader)
+# =============================================================================
+
+# =============================================================================
+# TiktokAutoUploader dependencies (separate environment)
+# =============================================================================
+# Install in TiktokAutoUploader/ directory:
+# - selenium
+# - undetected-chromedriver
+# - moviepy
+# - yt-dlp
+# - fastapi
+# - uvicorn
+# - sqlmodel
+# - playwright
+# playwright install chromium
