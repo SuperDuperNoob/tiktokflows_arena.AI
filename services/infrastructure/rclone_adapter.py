@@ -3,7 +3,7 @@
 from typing import Any, Dict, List, Optional
 from pathlib import Path
 import subprocess
-from scripts.config import get_config
+from services.infrastructure.config import get_config
 
 
 class RcloneAdapter:
@@ -15,7 +15,7 @@ class RcloneAdapter:
     def sync_from_drive(self, remote: str, remote_path: str, local_dir: Path) -> tuple[bool, str]:
         """Sync from Google Drive to local directory."""
         remote_full = f"{remote.rstrip(':')}:{remote_path}" if remote_path else f"{remote.rstrip(':')}:"
-        
+
         cmd = [
             "rclone", "copy",
             remote_full,
@@ -35,7 +35,7 @@ class RcloneAdapter:
             "--exclude", "deleted_history.log",
             "--log-level", "INFO",
         ]
-        
+
         try:
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
             if result.returncode == 0:
@@ -56,7 +56,7 @@ class RcloneAdapter:
     def sync_to_drive(self, local_dir: Path, remote: str, remote_path: str) -> tuple[bool, str]:
         """Sync local directory to Google Drive."""
         remote_full = f"{remote.rstrip(':')}:{remote_path}" if remote_path else f"{remote.rstrip(':')}:"
-        
+
         cmd = [
             "rclone", "copy",
             str(local_dir),
@@ -65,7 +65,7 @@ class RcloneAdapter:
             "--checkers", "2",
             "--buffer-size", "16M",
         ]
-        
+
         try:
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
             return result.returncode == 0, result.stderr[-500:] if result.returncode != 0 else "ok"
@@ -76,9 +76,9 @@ class RcloneAdapter:
         """Delete a file from Google Drive."""
         remote_full = f"{remote.rstrip(':')}:{remote_path}" if remote_path else f"{remote.rstrip(':')}:"
         remote_file = f"{remote_full}/{filename}"
-        
+
         cmd = ["rclone", "deletefile", remote_file, "--log-level", "INFO"]
-        
+
         try:
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
             return result.returncode == 0, result.stderr[-500:] if result.returncode != 0 else "ok"

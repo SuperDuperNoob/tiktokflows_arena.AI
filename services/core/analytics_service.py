@@ -7,6 +7,8 @@ from services.utils.analytics import reconcile as reconcile_fn, build as build_r
 from services.utils.db_utils import get_conn, ensure_schema
 from services.repositories import AnalyticsRepository
 from services.models import GrowthReport, DailySummary
+from services.infrastructure.config import get_config
+from services.infrastructure.database import Database
 
 logger = logging.getLogger(__name__)
 
@@ -49,7 +51,7 @@ class AnalyticsService:
         """Get performance summary."""
         return {}
 
-    def run_daily_jobs(self, db, config: dict) -> None:
+    def run_daily_jobs(self, db: Database, config: dict) -> None:
         """Run daily analytics jobs: scrape, reconcile, growth, report."""
         # Scrape competitor data
         try:

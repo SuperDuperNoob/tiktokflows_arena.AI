@@ -2,7 +2,7 @@
 
 from typing import Any, Dict, List, Optional
 from pathlib import Path
-from scripts.config import get_config
+from services.infrastructure.config import get_config
 
 
 class TikTokAdapter:
@@ -20,7 +20,7 @@ class TikTokAdapter:
             # Fallback to v1 if v2 not available
             from tiktok_uploader import tiktok as tt_uploader
             upload_video = tt_uploader.upload_video
-        
+
         return bool(upload_video(
             session_user=session_user,
             video=video_path,

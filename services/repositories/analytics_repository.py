@@ -4,7 +4,7 @@ from typing import Any, Dict, List, Optional
 from datetime import date, datetime, timedelta
 
 from .base import BaseRepository
-from scripts.config import get_config
+from services.infrastructure.config import get_config
 
 
 class AnalyticsRepository(BaseRepository):
@@ -119,21 +119,21 @@ class AnalyticsRepository(BaseRepository):
             ORDER BY snap_date DESC
         """
         # Get handles from config
-        from scripts.config import get_config
+        from services.infrastructure.config import get_config
         cfg = get_config()
         own_handle = cfg.get("tiktok", "session_username", "kumpul.shop").lower()
         rival_handle = cfg.get("analytics", "rival_handle", "reski.reski700").lower()
-        
+
         rows = self.fetchall(query, (own_handle, rival_handle))
         if len(rows) < 2:
             return None
-        
+
         own = rows[0] if rows[0]["handle"] == own_handle else rows[1]
         rival = rows[1] if rows[1]["handle"] == rival_handle else rows[0]
-        
+
         own_v = own.get("top_views") or 0
         rival_v = rival.get("top_views") or 0
-        
+
         return {
             "own_handle": own_handle,
             "rival_handle": rival_handle,

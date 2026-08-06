@@ -14,8 +14,8 @@ import fcntl
 
 from sidecar_manager import SidecarManager
 
-from config import get_config
-from services.utils.paths import queue_dir, failed_dir, success_log, db_path, failed_dir
+from services.infrastructure.config import get_config
+from services.utils.paths import queue_dir, failed_dir, success_log, db_path
 from services.utils.timezone import OWN_HANDLE
 from services.utils.proxy import (
     check_proxy_exit,

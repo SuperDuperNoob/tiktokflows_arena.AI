@@ -1,7 +1,7 @@
 """Telegram adapter for bot interactions."""
 
 from typing import Any, Dict, List, Optional
-from scripts.config import get_config
+from services.infrastructure.config import get_config
 
 
 class TelegramAdapter:

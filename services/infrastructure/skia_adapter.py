@@ -4,7 +4,7 @@ from typing import Any, Dict, List, Optional
 from pathlib import Path
 import random
 import os
-from scripts.config import get_config
+from services.infrastructure.config import get_config
 
 
 class SkiaAdapter:

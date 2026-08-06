@@ -24,9 +24,7 @@ SCRIPTS_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, PROJECT_ROOT)
 sys.path.insert(0, SCRIPTS_DIR)
 
-import yaml
-
-from config import get_config
+from services.infrastructure.config import get_config, Config
 from services.core import (
     VideoService,
     StorageService,
@@ -67,7 +65,6 @@ class Orchestrator:
         os.chdir(self.project_root)
 
         # Initialize config
-        from config import Config
         Config.reset_instance()
         cfg = Config.get_instance(Path(config_path))
 
@@ -76,7 +73,6 @@ class Orchestrator:
             db_path = os.path.join(self.project_root, db_path)
 
         # Initialize repositories
-        from services.repositories import Database
         self.db = Database(db_path)
 
         # Initialize services (inject or create defaults)
@@ -147,7 +143,7 @@ class Orchestrator:
 
         # Quality gate
         try:
-            from services.config import get_config
+            from services.infrastructure.config import get_config
             cfg = get_config()
             queue_dir = Path(cfg.get("content", "processed_dir", "content/processed"))
             queue_dir.mkdir(parents=True, exist_ok=True)

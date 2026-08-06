@@ -8,7 +8,7 @@ from .analytics_repository import AnalyticsRepository
 from .event_repository import EventRepository
 from .stock_repository import StockRepository
 
-from scripts.db import Database
+from services.infrastructure.database import Database
 
 __all__ = [
     "BaseRepository",

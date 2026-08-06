@@ -2,7 +2,7 @@
 
 from typing import Any, Dict, List, Optional
 import json
-from scripts.config import get_config
+from services.infrastructure.config import get_config
 
 from .base import BaseRepository
 from services.models.product import Product
@@ -21,13 +21,13 @@ class ProductRepository(BaseRepository):
         """Get all products from products.json."""
         cfg = get_config()
         products_file = cfg.get("google_drive", "products_file", "content/products.json")
-        
+
         try:
             with open(products_file, "r") as f:
                 data = json.load(f)
         except (FileNotFoundError, json.JSONDecodeError):
             return []
-        
+
         products = []
         for name, product_data in data.items():
             if isinstance(product_data, dict):
@@ -62,14 +62,14 @@ class ProductRepository(BaseRepository):
         """Save product to products.json."""
         cfg = get_config()
         products_file = cfg.get("google_drive", "products_file", "content/products.json")
-        
+
         # Load existing
         try:
             with open(products_file, "r") as f:
                 data = json.load(f)
         except (FileNotFoundError, json.JSONDecodeError):
             data = {}
-        
+
         # Update
         data[product.name] = {
             "id": product.product_id,
@@ -79,7 +79,7 @@ class ProductRepository(BaseRepository):
             "keywords": product.keywords,
             "yellow_bag_tags": product.yellow_bag_tags,
         }
-        
+
         # Save
         with open(products_file, "w") as f:
             json.dump(data, f, indent=2)

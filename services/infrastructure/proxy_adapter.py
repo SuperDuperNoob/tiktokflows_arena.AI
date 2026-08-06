@@ -3,7 +3,7 @@
 from typing import Any, Dict, List, Optional
 import os
 import requests
-from scripts.config import get_config
+from services.infrastructure.config import get_config
 from services.utils.proxy import (
     normalize_proxy_url,
     mask_proxy,

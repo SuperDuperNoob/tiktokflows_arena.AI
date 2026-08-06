@@ -5,7 +5,7 @@ from pathlib import Path
 import subprocess
 import random
 import json
-from scripts.config import get_config
+from services.infrastructure.config import get_config
 
 
 class FFmpegAdapter:

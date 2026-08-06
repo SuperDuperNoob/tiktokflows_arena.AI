@@ -13,7 +13,7 @@ import sys
 import os
 import logging
 
-from scripts.config import get_config
+from services.infrastructure.config import get_config
 from services.utils.paths import (
     VIDEO_EXTS,
     failed_dir,

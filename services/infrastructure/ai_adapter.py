@@ -3,7 +3,7 @@
 from typing import Any, Dict, List, Optional
 import requests
 import json
-from scripts.config import get_config
+from services.infrastructure.config import get_config
 
 
 class AIAdapter:
@@ -25,13 +25,13 @@ class AIAdapter:
         """Call the AI API."""
         if not self._ai_available():
             return None
-        
+
         base = self.ai_config.get("base_url", "").rstrip("/")
         api_key = self.ai_config.get("api_key", "")
         model = model or self.ai_config.get("model", "auto")
         timeout = self.ai_config.get("timeout_seconds", 45)
         retries = self.ai_config.get("retries", 2)
-        
+
         for attempt in range(1, retries + 1):
             try:
                 resp = requests.post(
@@ -57,10 +57,10 @@ class AIAdapter:
         system = """You are an expert TikTok Shop copywriter specializing in Bahasa Malaysia.
 Generate 10 engaging, casual captions. Each under 150 chars with 2-3 hashtags.
 NO medical claims, price guarantees, superlatives, or guaranteed results."""
-        
+
         description = product_config.get("description", "Product")
         keywords = ", ".join(product_config.get("keywords", []))
-        
+
         prompt = f"""Generate 10 TikTok Shop captions for:
 Product: {product_name}
 Description: {description}
@@ -68,11 +68,11 @@ Keywords: {keywords}
 
 Rules: Under 150 chars, 2-3 hashtags, casual BM, no banned phrases.
 Return ONLY a JSON array of strings."""
-        
+
         response = self.call_ai(prompt, system, max_tokens=300, temperature=0.8)
         if not response:
             return []
-        
+
         # Parse JSON response
         try:
             captions = json.loads(response)
@@ -86,22 +86,22 @@ Return ONLY a JSON array of strings."""
         """Generate strategy report."""
         system = "You are a TikTok Shop Malaysia growth strategist. Analyze data and generate a strategic action plan in Markdown."
         prompt = "Generate a strategic action plan based on the data."
-        
+
         return self.call_ai(prompt, system, max_tokens=1000, temperature=0.6)
 
     def check_compliance(self, caption_text: str) -> Dict[str, Any]:
         """Check caption compliance using AI."""
         if not self._ai_available():
             return {"is_compliant": True, "violations": [], "severity": "none"}
-        
+
         system = """You are a TikTok Shop Malaysia compliance officer.
 Review captions for medical claims, price guarantees, superlatives, guaranteed results.
 Reply with ONLY JSON: {"is_compliant": bool, "violations": [...], "rewritten_caption": "..."}"""
-        
+
         response = self.call_ai(f'Analyze: "{caption_text}"', system, max_tokens=500, temperature=0.1)
         if not response:
             return {"is_compliant": True, "violations": [], "severity": "none"}
-        
+
         try:
             start, end = response.find("{"), response.rfind("}")
             if start != -1 and end > start:

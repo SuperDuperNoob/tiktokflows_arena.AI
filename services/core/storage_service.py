@@ -3,16 +3,13 @@
 from typing import Any, Dict, List, Optional
 from pathlib import Path
 import subprocess
-import sys
-import os
 import logging
 
-from config import get_config
-
+from services.infrastructure.config import get_config
 from services.utils.paths import drive_root, db_path
 from services.utils.stock import scan_stock
 from services.utils.db_utils import consumed_pending_cleanup, mark_drive_cleaned
-from services.repositories import Database
+from services.infrastructure.database import Database
 
 logger = logging.getLogger(__name__)
 
@@ -104,7 +101,6 @@ class StorageService:
                 return False, f"sync logs/processed error: {e}"
 
         # 2. Clean up posted raws from Drive (read from DB)
-        from services.repositories import Database
         from services.utils.db_utils import consumed_pending_cleanup, mark_drive_cleaned
 
         db = Database(db_path())
