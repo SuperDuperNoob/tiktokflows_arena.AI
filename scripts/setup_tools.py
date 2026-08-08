@@ -128,7 +128,8 @@ def test_proxy(config):
         print("❌ Proxy not configured — skipping test")
         return
 
-    print(f"\n🌐 Testing proxy: {proxy_url[:30]}...")
+    from lib import mask_proxy
+    print(f"\n🌐 Testing proxy: {mask_proxy(proxy_url)}")
 
     try:
         proxies = {"http://": proxy_url, "https://": proxy_url}

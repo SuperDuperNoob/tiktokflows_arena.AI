@@ -12,6 +12,7 @@ from __future__ import annotations
 import logging
 import logging.handlers
 import os
+import re
 import sys
 import uuid
 from contextvars import ContextVar
@@ -31,6 +32,47 @@ class CorrelationFilter(logging.Filter):
     def filter(self, record: logging.LogRecord) -> bool:
         record.correlation_id = correlation_id_var.get() or "-"
         return True
+
+
+class SecretMaskingFilter(logging.Filter):
+    """Mask secrets in log records before they are emitted."""
+
+    # Patterns for common secret types
+    MASK_PATTERNS = [
+        # API keys
+        (re.compile(r'(?i)(api[_-]?key|apikey)\s*[:=]\s*["\']?([^"\'\s]+)'), r'\1=****'),
+        # Tokens
+        (re.compile(r'(?i)(token|access[_-]?token|bearer)\s*[:=]\s*["\']?([^"\'\s]+)'), r'\1=****'),
+        # Passwords
+        (re.compile(r'(?i)(password|passwd|secret)\s*[:=]\s*["\']?([^"\'\s]+)'), r'\1=****'),
+        # Cookies/session
+        (re.compile(r'(?i)(cookie|session[_-]?id)\s*[:=]\s*["\']?([^"\'\s]+)'), r'\1=****'),
+        # Proxy URLs with credentials
+        (re.compile(r'(?i)(proxy[_-]?(?:url|endpoint)?)\s*[:=]\s*["\']?(https?://[^"\'\s]+)'), r'\1=****'),
+        # URLs with credentials in general
+        (re.compile(r'https?://[^:\s]+:[^@\s]+@'), r'http://***:***@'),
+    ]
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        # Mask secrets in the message
+        if hasattr(record, 'msg') and isinstance(record.msg, str):
+            record.msg = self._mask_string(record.msg)
+        # Also mask args if they are strings
+        if hasattr(record, 'args') and record.args:
+            masked_args = []
+            for arg in record.args:
+                if isinstance(arg, str):
+                    masked_args.append(self._mask_string(arg))
+                else:
+                    masked_args.append(arg)
+            record.args = tuple(masked_args)
+        return True
+
+    def _mask_string(self, value: str) -> str:
+        """Mask secrets in a string."""
+        for pattern, replacement in self.MASK_PATTERNS:
+            value = pattern.sub(replacement, value)
+        return value
 
 
 class StructuredFormatter(logging.Formatter):
@@ -86,6 +128,7 @@ def setup_logging(
     console_handler = logging.StreamHandler(sys.stdout)
     console_handler.setLevel(numeric_level)
     console_handler.addFilter(CorrelationFilter())
+    console_handler.addFilter(SecretMaskingFilter())
 
     if json_format:
         console_handler.setFormatter(
@@ -119,6 +162,7 @@ def setup_logging(
         )
         file_handler.setLevel(numeric_level)
         file_handler.addFilter(CorrelationFilter())
+        file_handler.addFilter(SecretMaskingFilter())
 
         if json_format:
             file_handler.setFormatter(

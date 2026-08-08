@@ -208,10 +208,14 @@ async def qr_login(username: str, uploader_dir: str, timeout_seconds: int = 120,
         # Save cookies
         cookies_dir = os.path.join(uploader_dir, "CookiesDir")
         os.makedirs(cookies_dir, exist_ok=True)
+        # Ensure directory permissions are 700 (owner only)
+        os.chmod(cookies_dir, 0o700)
         out_path = os.path.join(cookies_dir, f"tiktok_session-{username}.cookie")
 
         with open(out_path, "wb") as f:
             pickle.dump(needed, f)
+        # Ensure cookie file permissions are 600 (owner read/write only)
+        os.chmod(out_path, 0o600)
 
         # Print summary
         session_value = next((c["value"] for c in needed if c["name"] == "sessionid"), "")

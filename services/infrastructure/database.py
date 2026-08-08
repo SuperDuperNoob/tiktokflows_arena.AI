@@ -104,38 +104,121 @@ CREATE INDEX IF NOT EXISTS idx_caption_pool_product ON caption_pool(product_name
 CREATE INDEX IF NOT EXISTS idx_caption_pool_compliance ON caption_pool(compliance_checked);
 CREATE INDEX IF NOT EXISTS idx_system_events_type ON system_events(event_type);
 CREATE INDEX IF NOT EXISTS idx_system_events_occurred ON system_events(occurred_at);
+
+CREATE TABLE IF NOT EXISTS schema_version (
+    version INTEGER PRIMARY KEY,
+    applied_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    description TEXT
+);
 """
 
 
 class Database:
     """Thread-safe SQLite database wrapper."""
 
+    CURRENT_SCHEMA_VERSION = 4
+
     def __init__(self, db_path: str):
         self.db_path = db_path
         os.makedirs(os.path.dirname(db_path), exist_ok=True)
+        self._Migrations = {
+            1: self._migration_v1_initial_schema,
+            2: self._migration_v2_add_schema_version,
+            3: self._migration_v3_add_video_hash_index,
+            4: self._migration_v4_legacy_columns,
+        }
         self._init_schema()
 
     def _init_schema(self):
         with self._connect() as conn:
             conn.executescript(SCHEMA)
-            # Migrate older tables
-            # raw_stock
-            cols = {r["name"] for r in conn.execute("PRAGMA table_info(raw_stock)")}
-            for col, ddl in (("file_hash", "TEXT"),
-                             ("posted_at", "TEXT"),
-                             ("drive_cleaned_at", "TEXT")):
-                if col not in cols:
-                    conn.execute(f"ALTER TABLE raw_stock ADD COLUMN {col} {ddl}")
+            self._run_migrations(conn)
 
-            # posts
-            cols = {r["name"] for r in conn.execute("PRAGMA table_info(posts)")}
+    def _get_current_version(self, conn) -> int:
+        """Get the current schema version from the database."""
+        try:
+            row = conn.execute("SELECT MAX(version) FROM schema_version").fetchone()
+            return row[0] if row and row[0] is not None else 0
+        except sqlite3.OperationalError:
+            # schema_version table doesn't exist yet
+            return 0
 
-            # caption_pool
-            cols = {r["name"] for r in conn.execute("PRAGMA table_info(caption_pool)")}
-            for col, ddl in (("description_text", "TEXT"),
-                             ("product_tag_text", "TEXT")):
-                if col not in cols:
-                    conn.execute(f"ALTER TABLE caption_pool ADD COLUMN {col} {ddl}")
+    def _run_migrations(self, conn):
+        """Run pending migrations in order."""
+        current_version = self._get_current_version(conn)
+        target_version = self.CURRENT_SCHEMA_VERSION
+
+        if current_version >= target_version:
+            return
+
+        for version in range(current_version + 1, target_version + 1):
+            migration_fn = self._Migrations.get(version)
+            if migration_fn:
+                migration_fn(conn)
+                conn.execute(
+                    "INSERT OR REPLACE INTO schema_version (version, description) VALUES (?, ?)",
+                    (version, f"Migration v{version}")
+                )
+            else:
+                raise RuntimeError(f"No migration function defined for version {version}")
+
+    def _migration_v1_initial_schema(self, conn):
+        """Initial schema - already created by SCHEMA executescript."""
+        # The SCHEMA constant already creates all tables and indexes
+        # Record that v1 is applied
+        pass
+
+    def _migration_v2_add_schema_version(self, conn):
+        """Add schema_version table (already in SCHEMA)."""
+        # The schema_version table is now part of SCHEMA
+        # Ensure it's created and v1 is recorded
+        conn.execute(
+            "INSERT OR IGNORE INTO schema_version (version, description) VALUES (?, ?)",
+            (1, "Initial schema")
+        )
+
+    def _migration_v3_add_video_hash_index(self, conn):
+        """Add video_hash index (already in SCHEMA)."""
+        # The video_hash index is now part of SCHEMA
+        # Record that v2 is applied
+        conn.execute(
+            "INSERT OR IGNORE INTO schema_version (version, description) VALUES (?, ?)",
+            (2, "Add schema_version table and migration tracking")
+        )
+
+    def _migration_v4_legacy_columns(self, conn):
+        """Add legacy columns that were previously added via ad-hoc migrations."""
+        # raw_stock legacy columns
+        cols = {r["name"] for r in conn.execute("PRAGMA table_info(raw_stock)")}
+        for col, ddl in (("file_hash", "TEXT"),
+                         ("posted_at", "TEXT"),
+                         ("drive_cleaned_at", "TEXT")):
+            if col not in cols:
+                conn.execute(f"ALTER TABLE raw_stock ADD COLUMN {col} {ddl}")
+
+        # posts legacy columns
+        cols = {r["name"] for r in conn.execute("PRAGMA table_info(posts)")}
+        for col, ddl in (("description_text", "TEXT"),
+                         ("product_tag_text", "TEXT"),
+                         ("created_at", "TEXT"),
+                         ("updated_at", "TEXT"),
+                         ("video_hash", "TEXT"),
+                         ("source_path", "TEXT"),
+                         ("job_uuid", "TEXT"),
+                         ("compliance_status", "TEXT"),
+                         ("compliance_details", "TEXT"),
+                         ("retry_count", "INTEGER DEFAULT 0"),
+                         ("max_retries", "INTEGER DEFAULT 3"),
+                         ("last_error", "TEXT")):
+            if col not in cols:
+                conn.execute(f"ALTER TABLE posts ADD COLUMN {col} {ddl}")
+
+        # caption_pool legacy columns
+        cols = {r["name"] for r in conn.execute("PRAGMA table_info(caption_pool)")}
+        for col, ddl in (("description_text", "TEXT"),
+                         ("product_tag_text", "TEXT")):
+            if col not in cols:
+                conn.execute(f"ALTER TABLE caption_pool ADD COLUMN {col} {ddl}")
 
     @contextmanager
     def _connect(self):
