@@ -187,7 +187,7 @@ class TelegramBotInterface:
             "⏳ Generating growth strategy and captions...\n(this takes ~30 seconds)"
         )
 
-        ai = AIEngine(self.ai_config, self.db)
+        ai = AIGrowthEngine(self.ai_config, self.db)
         compliance = ComplianceEngine(self.compliance_config, ai_config=self.ai_config)
 
         # Generate strategy

@@ -1,117 +1,81 @@
-# Commits - Phase 10
+# Commits — Phase 15
 
-## Commit History (Latest First)
-
-### Phase 10 Commit
-
-**SHA:** (to be filled after push)
-**Date:** 2026-08-06
-**Message:** Phase 10: Production Operations & Deployment Hardening
-
-- Created failure simulation tests (tests/test_failure_simulation.py) with 5 controlled failure scenarios: upload interruption, processing interruption, database failure, storage failure, idempotency after crash
-- Created DatabaseBackupManager (services/infrastructure/database_backup.py) with backup creation, rotation (30 backups), validation (checksum, schema, row counts), restore with pre-restore backup, integrity checks (PRAGMA integrity_check, foreign_key_check)
-- Created SecretsAuditor and SecretMasker (services/infrastructure/security_audit.py) for scanning config files (6 secret types) and masking secrets in diagnostics output
-- Created monitoring endpoints (services/infrastructure/monitoring.py) with FastAPI: /health, /health/live, /health/ready, /metrics (Prometheus), /metrics/json
-- Created comprehensive operator CLI (scripts/operator_cli.py) with 15+ commands: job management (list-retry, list-dead-letter, inspect, recover, abandon), health (health, diagnostics, metrics), backup (backup-list, backup-create, backup-validate, backup-restore, integrity), config (config-show, config-validate, secrets-audit)
-- Created pinned production dependencies (requirements.pinned.txt) with 80+ exact versions including transitive closure
-- Enhanced orchestrator startup validation (_validate_startup: DB, directories, queue consistency), graceful shutdown (flush logs, close DB, wait), SIGHUP config reload, startup reconciliation
-- Integrated SecretMasker into diagnostics for safe config output, added DB file permissions to diagnostics
-- Created comprehensive documentation:
-  * DEPLOYMENT_GUIDE.md - Installation, config, running, recovery, maintenance, monitoring, troubleshooting
-  * DISASTER_RECOVERY.md - 8 failure scenarios with RTO/RPO, decision tree, testing schedule
-  * SECURITY_AUDIT.md - Secrets review, logging review, diagnostics review, permissions, remaining risks
-  * TEST_REPORT.md - 61 tests passed, 5 failure simulations, coverage, benchmarks
-  * requirements.pinned.txt - 80+ pinned dependencies with transitive closure
-- All 61 tests pass (including 5 new failure simulation tests)
-- Orchestrator starts with validation, reconciliation, main loop
-- Recovery CLI functional with 15+ commands
-- Health checks all pass, monitoring endpoints functional
-
-**Files Created (12):**
-- tests/test_failure_simulation.py
-- services/infrastructure/database_backup.py
-- services/infrastructure/security_audit.py
-- services/infrastructure/monitoring.py
-- scripts/operator_cli.py
-- requirements.pinned.txt
-- DEPLOYMENT_GUIDE.md
-- DISASTER_RECOVERY.md
-- SECURITY_AUDIT.md
-- TEST_REPORT.md
-- REVIEW_SUMMARY.md (this file)
-- CHANGED_FILES.md
-
-**Files Modified (2):**
-- scripts/orchestrator.py
-- services/infrastructure/diagnostics.py
-
-**Files Deleted:** 0
+**Date:** 2026-08-09
+**Branch:** main
+**Base:** efca850 (Phase 14: Production Deployment Validation)
 
 ---
 
-### Previous Commits (for reference)
+## Planned Commits
 
-### e6714d5 - Phase 9: Workflow Reliability, Crash Recovery & Idempotency
-**Date:** 2026-08-06
-**Message:** Phase 9: Workflow Reliability, Crash Recovery & Idempotency
-- Extended UploadJob model with full lifecycle states and idempotency fields
-- Updated UploadRepository with new query/transition methods
-- Implemented idempotency check in UploadService using video_hash
-- Implemented full job lifecycle state machine with audit trail
-- Integrated retry framework (@retry_with_policy) on _upload_with_retry
-- Created RecoveryManager for startup reconciliation, abandoned job detection
-- Integrated RecoveryManager into Orchestrator with startup validation
-- All 56 tests pass
+### Commit 1: Fix config import in services layer
+```
+fix: migrate services/utils/paths.py to services.infrastructure.config
 
-### 4884885 - Phase 8: Production Readiness, Reliability & Operational Hardening
-**Date:** 2026-08-06
-**Message:** Phase 8: Production Readiness, Reliability & Operational Hardening
-- Created structured logging module with correlation IDs
-- Created exception hierarchy with retryable/fatal classification
-- Created retry framework with exponential backoff, policies
-- Created health check system (6 checks)
-- Created diagnostics module
-- Created metrics service (counters, gauges, histograms)
-- Enhanced Config validation
-- Implemented graceful shutdown with signal handling
-- Added job lifecycle tracking to UploadService
-- Integrated structured logging across all services
+Services layer should not import from scripts.config. This eliminates
+a duplicate configuration access pattern.
+```
 
-### a5a6ccb - Phase 7: Domain Architecture Refinement & Infrastructure Separation
-**Date:** 2026-08-06
-**Message:** Phase 7: Domain Architecture Refinement & Infrastructure Separation
-- Moved infrastructure from scripts/ to services/infrastructure/
-- Updated all services and adapters to use infrastructure layer
-- Updated repositories to use infrastructure layer
-- Updated orchestrator as composition root
-- Updated documentation (ARCHITECTURE.md, CODE_MAP.md, DEPENDENCY_GRAPH.md, TECHNICAL_DEBT.md)
+### Commit 2: Fix config import in repositories
+```
+fix: migrate services/repositories/stock_repository.py to services.infrastructure.config
 
-### b87df47 - Phase 6.1: Legacy Eradication
-**Date:** 2026-08-06
-**Message:** Phase 6.1: Legacy Eradication - Complete removal of services/utils/legacy.py
-- Moved all legacy functions to proper utility modules
-- Deleted services/utils/legacy.py entirely
+Repositories should use services layer config, not scripts.config.
+```
 
-### 79f517a - Phase 6: Eliminate lib.py from services
-**Date:** 2026-08-06
-**Message:** Phase 6: Eliminate lib.py from services, create legacy compatibility module
+### Commit 3: Fix Telegram bot AI engine reference
+```
+fix: use AIGrowthEngine instead of non-existent AIEngine in telegram_bot
 
-### 4e8e34a - Phase 5: Repository Reality Review & Architectural Hardening
-**Date:** 2026-08-06
-**Message:** Phase 5: Repository Reality Review & Architectural Hardening
+AIEngine class was removed/merged into ai_growth.py. AIGrowthEngine
+provides cached daily AI budget (1 call/day) which the /growth command
+must respect to avoid uncontrolled costs.
+```
 
-### 0dcef81 - Phase 3: Fix AIAdapter config bug
-**Date:** 2026-08-06
-**Message:** Phase 3: Fix AIAdapter config bug and complete service-oriented architecture
+### Commit 4: Add Phase 15 audit documentation
+```
+docs: add Phase 15 final audit documents
 
-### e9f4618 - Restore protected TiktokAutoUploader subsystems
-**Date:** 2026-08-06
-**Message:** Restore protected TiktokAutoUploader subsystems (api, novnc, scheduler) - not part of refactor
+- FINAL_ARCHITECTURE_AUDIT.md: Architecture verification
+- CONFIGURATION_AUDIT.md: Config ownership, duplicates, gaps
+- PRODUCTION_READINESS.md: Deployment/ops/recovery checklist
+- DEAD_CODE_FINAL_REPORT.md: Dead code inventory
+- REVIEW_SUMMARY.md: Phase 15 summary
+- CHANGED_FILES.md: This file
+```
 
-### 94751cb - Phase 2: Consolidate duplicate modules
-**Date:** 2026-08-06
-**Message:** Phase 2: Consolidate duplicate modules and centralize config
+---
 
-### 760bddf - Phase 1: Complete architecture and reality audit
-**Date:** 2026-08-06
-**Message:** Phase 1: Complete architecture and reality audit
+## Commit History (After Phase 15)
+
+```
+<new> Phase 15: Final Architecture Audit & Release Readiness
+efca850 Phase 14: Production Deployment Validation
+aecb719 Phase 13: Fix logging error - move secret masking to StructuredFormatter.format()
+384fa40 Phase 13: Security Hardening & Long-Term Maintainability
+d728170 Phase 12.1: Performance Findings Hardening
+fc18cb3 Phase 12: Performance, Scalability & Resource Optimization
+```
+
+---
+
+## Files per Commit
+
+| Commit | Files |
+|--------|-------|
+| 1 | `services/utils/paths.py` |
+| 2 | `services/repositories/stock_repository.py` |
+| 3 | `scripts/telegram_bot.py` |
+| 4 | `FINAL_ARCHITECTURE_AUDIT.md`, `CONFIGURATION_AUDIT.md`, `PRODUCTION_READINESS.md`, `DEAD_CODE_FINAL_REPORT.md`, `REVIEW_SUMMARY.md`, `CHANGED_FILES.md` |
+
+---
+
+## Verification Commands
+
+```bash
+# After each commit, verify:
+TESTING=1 TIKTOK_MACHINE_CONFIG=config/config.yaml python -m pytest tests/ -v
+
+# Final verification:
+TESTING=1 TIKTOK_MACHINE_CONFIG=config/config.yaml timeout 10 python scripts/orchestrator.py
+```

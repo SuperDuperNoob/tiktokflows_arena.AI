@@ -2,7 +2,8 @@
 
 from typing import Any, Dict, List, Optional
 from datetime import datetime
-from scripts.config import get_config
+
+from services.infrastructure.config import get_config
 
 from .base import BaseRepository
 

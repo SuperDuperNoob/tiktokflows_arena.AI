@@ -3,9 +3,9 @@
 from pathlib import Path
 from typing import Optional
 
-# Explicitly import from scripts.config to avoid ambiguity with services.infrastructure.config
-from scripts.config import cfg as _cfg
-from scripts.config import get_config
+import os
+
+from services.infrastructure.config import get_config, cfg
 
 
 def _get_project_root() -> Path:
@@ -40,91 +40,88 @@ def _resolve(p: str) -> Path:
     return Path(p)
 
 
-import os
-
-
 def env_path(var: str, default: str) -> Path:
     return Path(os.path.expanduser(os.environ.get(var) or default))
 
 
 def drive_root() -> Path:
     """Root where product video folders live (content/raw in this layout)."""
-    return _resolve(_cfg("content", "raw_dir",
+    return _resolve(cfg("content", "raw_dir",
                          default=str(PROJECT_ROOT / "content" / "raw")))
 
 
 def processed_dir() -> Path:
-    return _resolve(_cfg("content", "processed_dir",
+    return _resolve(cfg("content", "processed_dir",
                          default=str(PROJECT_ROOT / "content" / "processed")))
 
 
 def failed_dir() -> Path:
-    return _resolve(_cfg("content", "failed_dir",
+    return _resolve(cfg("content", "failed_dir",
                          default=str(PROJECT_ROOT / "content" / "failed")))
 
 
 def posted_dir() -> Path:
-    return _resolve(_cfg("content", "posted_dir",
+    return _resolve(cfg("content", "posted_dir",
                          default=str(PROJECT_ROOT / "content" / "posted")))
 
 
 def sounds_dir() -> Path:
-    return _resolve(_cfg("content", "sounds_dir",
+    return _resolve(cfg("content", "sounds_dir",
                          default=str(PROJECT_ROOT / "sounds")))
 
 
 def queue_dir() -> Path:
     """Rendered videos waiting for the uploader. This is the real queue."""
-    return _resolve(_cfg("content", "queue_dir",
+    return _resolve(cfg("content", "queue_dir",
                          default=str(PROJECT_ROOT / "content" / "processed")))
 
 
 def db_path() -> Path:
-    p = _cfg("logging", "db_path", default=str(PROJECT_ROOT / "logs" / "tiktok.db"))
+    p = cfg("logging", "db_path", default=str(PROJECT_ROOT / "logs" / "tiktok.db"))
     return _resolve(p)
 
 
 def preset_txt() -> Path:
-    return _resolve(_cfg("content", "preset_text",
+    return _resolve(cfg("content", "preset_text",
                          default=str(drive_root() / "preset_text.txt")))
 
 
 def product_txt() -> Path:
-    return _resolve(_cfg("content", "product_id_file",
+    return _resolve(cfg("content", "product_id_file",
                          default=str(drive_root() / "product_id.txt")))
 
 
 def burn_jsonl() -> Path:
-    return _resolve(_cfg("content", "burn_log",
+    return _resolve(cfg("content", "burn_log",
                          default=str(PROJECT_ROOT / "logs" / "burn_log.jsonl")))
 
 
 def deleted_log() -> Path:
-    return _resolve(_cfg("content", "deleted_log",
+    return _resolve(cfg("content", "deleted_log",
                          default=str(PROJECT_ROOT / "logs" / "deleted.log")))
 
 
 def success_log() -> Path:
-    return _resolve(_cfg("content", "success_log",
+    return _resolve(cfg("content", "success_log",
                          default=str(PROJECT_ROOT / "logs" / "success.log")))
 
 
 def failed_log() -> Path:
-    return _resolve(_cfg("content", "failed_log",
+    return _resolve(cfg("content", "failed_log",
                          default=str(PROJECT_ROOT / "logs" / "failed.log")))
 
 
 def growth_report() -> Path:
-    return _resolve(_cfg("content", "growth_report",
+    return _resolve(cfg("content", "growth_report",
                          default=str(PROJECT_ROOT / "logs" / "growth_report.txt")))
 
 
 def drive_cleanup_log() -> Path:
     """Audit of remote files deleted by sync_out (review only, not load-bearing)."""
-    return _resolve(_cfg("content", "drive_cleanup_log",
+    return _resolve(cfg("content", "drive_cleanup_log",
                          default=str(PROJECT_ROOT / "logs" / "drive_cleanup.log")))
 
 
 def daily_report() -> Path:
-    return _resolve(_cfg("content", "daily_report",
+    return _resolve(cfg("content", "daily_report",
                          default=str(PROJECT_ROOT / "logs" / "daily_report.txt")))

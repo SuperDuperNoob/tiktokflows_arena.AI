@@ -1,105 +1,112 @@
-# Changed Files - Phase 10
+# Changed Files — Phase 15
 
-## New Files
-
-### tests/test_failure_simulation.py
-**Purpose:** Controlled failure scenario tests for production readiness.
-**Contents:** 5 test functions:
-- `test_upload_interruption_recovery` - Job in UPLOADING, crash, restart recovers to RETRY_PENDING
-- `test_processing_interruption_recovery` - Job in PROCESSING, crash, restart recovers to RETRY_PENDING
-- `test_database_failure_handling` - Invalid path fails clearly, concurrent access handled
-- `test_storage_failure_retry` - Transient errors retried, fatal errors not retried
-- `test_idempotency_after_crash` - Duplicate SUCCESS job detected and skipped
-**Why Created:** Prove recovery works under controlled failure conditions.
-
-### services/infrastructure/database_backup.py
-**Purpose:** Database backup management with rotation, validation, restore.
-**Contents:** `DatabaseBackupManager` class with:
-- `create_backup()` - Timestamped compressed SQL dump + metadata
-- `list_backups()` - List with size, schema version, checksum
-- `validate_backup()` - Checksum verify, schema readable, row counts
-- `restore_backup()` - Restore with pre-restore backup of current
-- `check_integrity()` - PRAGMA integrity_check, foreign_key_check, page counts
-- Rotation: keeps max N backups (default 30)
-**Why Created:** Database safety - automatic backups, rotation, restore validation.
-
-### services/infrastructure/security_audit.py
-**Purpose:** Secrets scanning and masking for safe diagnostics.
-**Contents:** 
-- `SecretsAuditor` - Scans YAML/JSON/Python files for 6 secret types
-- `SecretMasker` - Masks secrets in dicts and YAML strings
-- `audit_secrets()` / `mask_secrets()` convenience functions
-- Detects: api_key, token, password, cookie, proxy, database_url
-**Why Created:** Configuration & secrets audit, safe diagnostics output.
-
-### services/infrastructure/monitoring.py
-**Purpose:** HTTP endpoints for external monitoring systems.
-**Contents:** FastAPI app with:
-- `GET /health` - Full health check (liveness + readiness)
-- `GET /health/live` - Simple liveness probe
-- `GET /health/ready` - Readiness probe (503 if not healthy)
-- `GET /metrics` - Prometheus text format
-- `GET /metrics/json` - JSON format
-**Why Created:** Monitoring preparation - expose health, metrics for Prometheus/K8s.
-
-### scripts/operator_cli.py
-**Purpose:** Comprehensive operator CLI for production operations.
-**Contents:** 15+ commands:
-- Jobs: list-retry, list-dead-letter, list-all, inspect, recover, recover-all, abandon, dry-run, summary
-- Health: health (--quick/--verbose), diagnostics, metrics (--json/--reset)
-- Backup: backup-list, backup-create, backup-validate, backup-restore, integrity
-- Config: config-show, config-validate, secrets-audit
-**Why Created:** Operator tools - view jobs, health, metrics; run diagnostics; manage backups.
-
-### requirements.pinned.txt
-**Purpose:** Fully pinned production dependencies for reproducible builds.
-**Contents:** 80+ packages with exact versions including transitive closure.
-**Why Created:** Dependency management - verify pinned deps, document versions.
-
-### DEPLOYMENT_GUIDE.md
-**Purpose:** Complete production deployment documentation.
-**Contents:** Installation, configuration, running, recovery, maintenance, monitoring, troubleshooting, security checklist.
-**Why Created:** Deployment documentation.
-
-### DISASTER_RECOVERY.md
-**Purpose:** Disaster recovery plan with failure scenarios.
-**Contents:** 8 failure scenarios (machine failure, DB corruption, expired cookies, storage outage, proxy outage, network outage, config error, AI outage) with detection, recovery steps, RTO/RPO.
-**Why Created:** Disaster recovery plan.
-
-### SECURITY_AUDIT.md
-**Purpose:** Security audit report.
-**Contents:** Secrets review, logging review, diagnostics review, file permissions, remaining risks, recommendations.
-**Why Created:** Security review documentation.
-
-### TEST_REPORT.md
-**Purpose:** Test execution report.
-**Contents:** 61 tests passed, 5 failure simulations, coverage summary, benchmarks.
-**Why Created:** Test documentation.
-
-### requirements.pinned.txt
-**Purpose:** Pinned production dependencies.
-**Contents:** 80+ exact versions with transitive dependencies.
-**Why Created:** Dependency management.
+**Date:** 2026-08-09
+**Branch:** main
 
 ---
 
-## Modified Files
+## Modified Files (3)
 
-### scripts/orchestrator.py
-**Change:** Enhanced startup validation, graceful shutdown, SIGHUP reload.
-**Details:** Added `_validate_startup()` (DB, directories, queue consistency), `_shutdown()` (flush logs, close DB, wait), SIGHUP handler for config reload, startup reconciliation call.
+### 1. `services/utils/paths.py`
+**Type:** Refactor - Import migration
+**Lines changed:** ~15 (import section)
 
-### services/infrastructure/diagnostics.py
-**Change:** Integrated SecretMasker for config summary, added file permissions to DB info.
-**Details:** `get_config_summary()` now uses `SecretMasker.mask_dict()`, DB info includes permissions octal.
+**Diff:**
+```diff
+- # Explicitly import from scripts.config to avoid ambiguity with services.infrastructure.config
+- from scripts.config import cfg as _cfg
+- from scripts.config import get_config
++ from services.infrastructure.config import get_config, cfg
+```
+
+**Reason:** Eliminate duplicate config access pattern. Services layer should use `services.infrastructure.config` not `scripts.config`.
+
+**Impact:** None - same functions, different import path.
 
 ---
 
-## Summary
+### 2. `services/repositories/stock_repository.py`
+**Type:** Refactor - Import migration
+**Lines changed:** 2 (import section)
 
-| Category | Count |
-|----------|-------|
-| Files Created | 12 |
-| Files Modified | 2 |
-| Files Deleted | 0 |
-| **Total Changed** | **14** |
+**Diff:**
+```diff
+- from scripts.config import get_config
++ from services.infrastructure.config import get_config
+```
+
+**Reason:** Eliminate duplicate config access pattern. Repositories should use services layer config.
+
+**Impact:** None - same function, different import path.
+
+---
+
+### 3. `scripts/telegram_bot.py`
+**Type:** Bug fix - Non-existent class reference
+**Lines changed:** 1 (line 190)
+
+**Diff:**
+```diff
+-         ai = AIEngine(self.ai_config, self.db)
++         ai = AIGrowthEngine(self.ai_config, self.db)
+```
+
+**Reason:** `AIEngine` class does not exist. `ai_growth.py` provides `AIGrowthEngine` with cached daily AI budget.
+
+**Impact:** Fixes `/growth` command to respect daily AI call limit (1 call/day cached).
+
+---
+
+## New Files (4) - Audit Documentation
+
+### 1. `FINAL_ARCHITECTURE_AUDIT.md`
+Complete architecture verification against implementation.
+
+### 2. `CONFIGURATION_AUDIT.md`
+Configuration ownership, duplicates, gaps, secrets management.
+
+### 3. `PRODUCTION_READINESS.md`
+Deployment, operations, recovery, maintenance checklist with honest limitations.
+
+### 4. `DEAD_CODE_FINAL_REPORT.md`
+Dead code inventory with removal rationale (nothing removed, only documented).
+
+---
+
+## Files NOT Changed
+
+### Protected (TiktokAutoUploader/)
+No modifications per policy.
+
+### Legacy Scripts (Preserved)
+- `scripts/video_processor.py`
+- `scripts/uploader.py`
+- `scripts/sync_drive.py`
+- `scripts/sync_out.py`
+- `scripts/check_burns.py`
+- `scripts/sidecar_manager.py`
+- `scripts/lib.py`
+- `scripts/db.py`
+- `scripts/config.py`
+
+### Legacy Webapp (Preserved)
+- `webapp/server.py` (uses `scripts.lib`)
+
+### Dead Code (Documented, Not Removed)
+- 15 dead DB columns
+- 20+ dead config keys
+- Duplicate constants in transform_video.py / video_processor.py / ai_growth.py
+- Unused functions in services/utils/analytics.py
+- Unused methods in scripts/db.py
+- Empty stub in telegram_bot.py (_handle_unknown)
+
+---
+
+## Verification
+
+All changes verified:
+- ✅ Tests pass (62/62)
+- ✅ Orchestrator starts cleanly
+- ✅ No circular imports
+- ✅ Config loading works
+- ✅ Telegram bot import works (AIGrowthEngine exists)
