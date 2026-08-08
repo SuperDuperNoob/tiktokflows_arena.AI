@@ -259,7 +259,7 @@ class UploadService:
                     video_path=str(mp4),
                     product_name=sidecar.get("product_folder", ""),
                     product_id=product_id,
-                    tiktok_video_id=None,
+                    tiktok_post_id=None,
                 )
             else:
                 self._transition_job(job, UploadJobStatus.FAILED, "Upload returned False")

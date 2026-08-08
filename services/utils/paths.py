@@ -3,8 +3,9 @@
 from pathlib import Path
 from typing import Optional
 
-from config import cfg as _cfg
-from config import get_config
+# Explicitly import from scripts.config to avoid ambiguity with services.infrastructure.config
+from scripts.config import cfg as _cfg
+from scripts.config import get_config
 
 
 def _get_project_root() -> Path:
