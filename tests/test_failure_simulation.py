@@ -348,6 +348,7 @@ def run_all_failure_tests():
         test_database_failure_handling,
         test_storage_failure_retry,
         test_idempotency_after_crash,
+        test_retry_count_type_safety,
     ]
     
     results = []
@@ -377,3 +378,73 @@ def run_all_failure_tests():
 if __name__ == "__main__":
     success = run_all_failure_tests()
     sys.exit(0 if success else 1)
+
+
+def test_retry_count_type_safety():
+    """Test: retry_count is always int, even when stored as string in DB.
+    
+    This tests the fix for the type inconsistency where retry_count was 
+    stored as string in DB but compared as int in RecoveryManager.
+    """
+    print("\n=== Test: Retry Count Type Safety ===")
+    
+    from services.infrastructure.database import Database
+    from services.repositories import UploadRepository
+    from services.models.upload_job import UploadJob, UploadJobStatus
+    from services.core.recovery_manager import RecoveryManager
+    
+    tmp_dir, db_path = setup_test_db()
+    
+    try:
+        db = Database(db_path)
+        upload_repo = UploadRepository(db_path)
+        
+        # Create a job with retry_count=1 (as int)
+        job = UploadJob(
+            product_name="test_product",
+            product_id="test_001",
+            raw_video_path="/tmp/test_video.mp4",
+            processed_video_path="/tmp/test_video_processed.mp4",
+            caption_text="Test caption",
+            video_hash="abc123hash",
+            source_path="/tmp/test_video.mp4",
+            job_uuid="test_uuid_001",
+            status=UploadJobStatus.RETRY_PENDING,
+            retry_count=1,
+            max_retries=3,
+        )
+        job_id = upload_repo.create(job)
+        job.id = job_id
+        print(f"Created job {job_id} with retry_count=1 (int)")
+        
+        # Verify job is retrieved with retry_count as int
+        found = upload_repo.get_by_id(job_id)
+        assert isinstance(found.retry_count, int), f"Expected int, got {type(found.retry_count)}"
+        assert found.retry_count == 1, f"Expected 1, got {found.retry_count}"
+        assert isinstance(found.max_retries, int), f"Expected int, got {type(found.max_retries)}"
+        print("✓ Job retrieved with retry_count as int")
+        
+        # Now simulate the old bug: manually update DB with string retry_count
+        # This simulates the old bug where retry_count was stored as string
+        with Database(db_path)._connect() as conn:
+            conn.execute("UPDATE posts SET retry_count = '2' WHERE id = ?", (job_id,))
+            conn.commit()
+        print("Manually set retry_count to string '2' in DB")
+        
+        # Now retrieve again - should be cast to int
+        found = upload_repo.get_by_id(job_id)
+        assert isinstance(found.retry_count, int), f"Expected int after string in DB, got {type(found.retry_count)}"
+        assert found.retry_count == 2, f"Expected 2, got {found.retry_count}"
+        print("✓ Job retrieved with retry_count correctly cast from string to int")
+        
+        # Test recovery manager comparison works
+        recovery_mgr = RecoveryManager(upload_repo)
+        action = recovery_mgr._decide_job_fate(found)
+        assert action == "retry", f"Expected retry, got {action}"
+        print("✓ Recovery manager comparison works with int retry_count")
+        
+        print("✓ Retry count type safety test PASSED")
+        return True
+        
+    finally:
+        cleanup_test_db(tmp_dir)

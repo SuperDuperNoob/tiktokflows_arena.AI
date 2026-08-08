@@ -176,11 +176,10 @@ class UploadRepository(BaseRepository):
 
     def increment_retry_count(self, job_id: int, error_message: str) -> int:
         """Increment retry count and store error."""
-        return self.update("posts",
-                           {"retry_count": "retry_count + 1",
-                            "last_error": error_message,
-                            "updated_at": datetime.utcnow().isoformat()},
-                           "id = ?", (job_id,))
+        return self.execute(
+            "UPDATE posts SET retry_count = retry_count + 1, last_error = ?, updated_at = ? WHERE id = ?",
+            (error_message, datetime.utcnow().isoformat(), job_id)
+        ).rowcount
 
     def set_dead_letter(self, job_id: int, reason: str) -> int:
         """Mark job as dead letter."""
