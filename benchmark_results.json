@@ -1,0 +1,269 @@
+{
+  "timestamp": "2026-08-08T08:55:51.590709+00:00",
+  "environment": {
+    "python_version": "3.13.5 (main, Jul 15 2026, 20:25:40) [GCC 14.2.0]",
+    "cpu_count": 12,
+    "memory_total_gb": 7.077579498291016
+  },
+  "benchmarks": {
+    "database": {
+      "get_stock_counts": {
+        "wall_time_ms": 63.56031600080314,
+        "cpu_user_ms": 39.99999999999998,
+        "cpu_system_ms": 30.0,
+        "memory_rss_mb": 43.04296875,
+        "memory_vms_mb": 52.64453125,
+        "memory_delta_mb": 0.0,
+        "disk_read_mb": 0.0,
+        "disk_write_mb": 0.0
+      },
+      "get_unused_videos": {
+        "wall_time_ms": 63.35471000056714,
+        "cpu_user_ms": 40.000000000000036,
+        "cpu_system_ms": 19.99999999999999,
+        "memory_rss_mb": 43.12109375,
+        "memory_vms_mb": 52.64453125,
+        "memory_delta_mb": 0.078125,
+        "disk_read_mb": 0.0,
+        "disk_write_mb": 0.0
+      },
+      "get_posts_today": {
+        "wall_time_ms": 63.323872000182746,
+        "cpu_user_ms": 39.99999999999998,
+        "cpu_system_ms": 30.0,
+        "memory_rss_mb": 43.1328125,
+        "memory_vms_mb": 52.64453125,
+        "memory_delta_mb": 0.01171875,
+        "disk_read_mb": 0.0,
+        "disk_write_mb": 0.0
+      },
+      "get_posted_count_today": {
+        "wall_time_ms": 61.77375800325535,
+        "cpu_user_ms": 39.99999999999998,
+        "cpu_system_ms": 20.000000000000018,
+        "memory_rss_mb": 43.1328125,
+        "memory_vms_mb": 52.64453125,
+        "memory_delta_mb": 0.0,
+        "disk_read_mb": 0.0,
+        "disk_write_mb": 0.0
+      },
+      "sync_raw_stock": {
+        "wall_time_ms": 73.98328700219281,
+        "cpu_user_ms": 40.000000000000036,
+        "cpu_system_ms": 30.0,
+        "memory_rss_mb": 43.1328125,
+        "memory_vms_mb": 52.64453125,
+        "memory_delta_mb": 0.0,
+        "disk_read_mb": 0.0,
+        "disk_write_mb": 0.0
+      },
+      "find_by_video_hash": {
+        "wall_time_ms": 65.2128720030305,
+        "cpu_user_ms": 40.000000000000036,
+        "cpu_system_ms": 30.0,
+        "memory_rss_mb": 43.13671875,
+        "memory_vms_mb": 52.64453125,
+        "memory_delta_mb": 0.00390625,
+        "disk_read_mb": 0.0,
+        "disk_write_mb": 0.0
+      },
+      "get_recent_uploads": {
+        "wall_time_ms": 64.27919799898518,
+        "cpu_user_ms": 49.999999999999936,
+        "cpu_system_ms": 19.99999999999999,
+        "memory_rss_mb": 43.13671875,
+        "memory_vms_mb": 52.64453125,
+        "memory_delta_mb": 0.0,
+        "disk_read_mb": 0.0,
+        "disk_write_mb": 0.0
+      }
+    },
+    "video_service": {
+      "scan_raw": {
+        "wall_time_ms": 8.211745000153314,
+        "cpu_user_ms": 0.0,
+        "cpu_system_ms": 0.0,
+        "memory_rss_mb": 43.13671875,
+        "memory_vms_mb": 52.64453125,
+        "memory_delta_mb": 0.0,
+        "disk_read_mb": 0.0,
+        "disk_write_mb": 0.0
+      },
+      "load_products": {
+        "wall_time_ms": 1.0107599991897587,
+        "cpu_user_ms": 0.0,
+        "cpu_system_ms": 0.0,
+        "memory_rss_mb": 43.13671875,
+        "memory_vms_mb": 52.64453125,
+        "memory_delta_mb": 0.0,
+        "disk_read_mb": 0.0,
+        "disk_write_mb": 0.0
+      },
+      "load_captions": {
+        "wall_time_ms": 1.2999329992453568,
+        "cpu_user_ms": 10.000000000000009,
+        "cpu_system_ms": 0.0,
+        "memory_rss_mb": 43.13671875,
+        "memory_vms_mb": 52.64453125,
+        "memory_delta_mb": 0.0,
+        "disk_read_mb": 0.0,
+        "disk_write_mb": 0.0
+      },
+      "query_analytics_weights": {
+        "wall_time_ms": 16.094431000965415,
+        "cpu_user_ms": 0.0,
+        "cpu_system_ms": 10.000000000000009,
+        "memory_rss_mb": 43.234375,
+        "memory_vms_mb": 52.8203125,
+        "memory_delta_mb": 0.09765625,
+        "disk_read_mb": 0.046875,
+        "disk_write_mb": 0.34375
+      },
+      "md5_file_10mb": {
+        "wall_time_ms": 266.11892000073567,
+        "cpu_user_ms": 229.99999999999997,
+        "cpu_system_ms": 29.99999999999997,
+        "memory_rss_mb": 43.234375,
+        "memory_vms_mb": 52.8203125,
+        "memory_delta_mb": 0.0,
+        "disk_read_mb": 0.0,
+        "disk_write_mb": 0.0
+      }
+    },
+    "upload_service": {
+      "verify_proxy_no_proxy": {
+        "wall_time_ms": 0.006201000360306352,
+        "cpu_user_ms": 0.0,
+        "cpu_system_ms": 0.0,
+        "memory_rss_mb": 43.234375,
+        "memory_vms_mb": 52.8203125,
+        "memory_delta_mb": 0.0,
+        "disk_read_mb": 0.0,
+        "disk_write_mb": 0.0
+      },
+      "check_cookie_expiry": {
+        "wall_time_ms": 0.982186000328511,
+        "cpu_user_ms": 0.0,
+        "cpu_system_ms": 10.000000000000009,
+        "memory_rss_mb": 43.234375,
+        "memory_vms_mb": 52.8203125,
+        "memory_delta_mb": 0.0,
+        "disk_read_mb": 0.0,
+        "disk_write_mb": 0.0
+      },
+      "md5_file_5mb": {
+        "wall_time_ms": 135.65523400029633,
+        "cpu_user_ms": 120.0,
+        "cpu_system_ms": 10.000000000000009,
+        "memory_rss_mb": 47.69921875,
+        "memory_vms_mb": 57.28515625,
+        "memory_delta_mb": 0.0,
+        "disk_read_mb": 0.0,
+        "disk_write_mb": 0.0
+      }
+    },
+    "analytics_service": {
+      "get_performance_summary": {
+        "wall_time_ms": 3.4658650001802016,
+        "cpu_user_ms": 10.000000000000009,
+        "cpu_system_ms": 0.0,
+        "memory_rss_mb": 47.69921875,
+        "memory_vms_mb": 57.28515625,
+        "memory_delta_mb": 0.0,
+        "disk_read_mb": 0.0,
+        "disk_write_mb": 0.0
+      },
+      "get_products_due_next": {
+        "wall_time_ms": 4.22762600283022,
+        "cpu_user_ms": 0.0,
+        "cpu_system_ms": 0.0,
+        "memory_rss_mb": 47.69921875,
+        "memory_vms_mb": 57.28515625,
+        "memory_delta_mb": 0.0,
+        "disk_read_mb": 0.0,
+        "disk_write_mb": 0.0
+      }
+    },
+    "full_cycle": {
+      "sync_from_drive": {
+        "wall_time_ms": 0.05183399965365728,
+        "cpu_user_ms": 0.0,
+        "memory_delta_mb": 0.0
+      },
+      "quality_gate": {
+        "wall_time_ms": 1.1581933322304394,
+        "cpu_user_ms": 0.0,
+        "memory_delta_mb": 0.0026041666666666665
+      },
+      "video_processing_dry": {
+        "wall_time_ms": 2.4167629999283236,
+        "cpu_user_ms": 0.0,
+        "memory_delta_mb": 0.0013020833333333333
+      },
+      "process_upload_queue": {
+        "wall_time_ms": 0.344451333755084,
+        "cpu_user_ms": 0.0,
+        "memory_delta_mb": 0.0
+      },
+      "analytics_daily_jobs": {
+        "wall_time_ms": 68.83069599886464,
+        "cpu_user_ms": 43.33333333333337,
+        "memory_delta_mb": 1.6783854166666667
+      }
+    },
+    "video_hash_index": {
+      "index_exists": true,
+      "lookup_time_ms": 10578.665444001672,
+      "lookups_per_second": 1890.5976472996813
+    },
+    "memory_stability": {
+      "initial_rss_mb": 52.76,
+      "final_rss_mb": 51.95,
+      "peak_rss_mb": 52.83,
+      "growth_mb": -0.81,
+      "stable": true,
+      "samples": [
+        {
+          "cycle": 0,
+          "rss_mb": 52.77
+        },
+        {
+          "cycle": 10,
+          "rss_mb": 52.78
+        },
+        {
+          "cycle": 20,
+          "rss_mb": 52.79
+        },
+        {
+          "cycle": 30,
+          "rss_mb": 52.79
+        },
+        {
+          "cycle": 40,
+          "rss_mb": 52.81
+        },
+        {
+          "cycle": 50,
+          "rss_mb": 52.82
+        },
+        {
+          "cycle": 60,
+          "rss_mb": 52.83
+        },
+        {
+          "cycle": 70,
+          "rss_mb": 51.92
+        },
+        {
+          "cycle": 80,
+          "rss_mb": 51.93
+        },
+        {
+          "cycle": 90,
+          "rss_mb": 51.94
+        }
+      ]
+    }
+  }
+}

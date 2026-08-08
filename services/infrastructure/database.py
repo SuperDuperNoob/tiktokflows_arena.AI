@@ -34,7 +34,17 @@ CREATE TABLE IF NOT EXISTS posts (
     comments INTEGER DEFAULT 0,
     last_analytics_check DATETIME,
     proxy_ip_used TEXT,
-    notes TEXT
+    notes TEXT,
+    video_hash TEXT,
+    source_path TEXT,
+    job_uuid TEXT,
+    compliance_status TEXT,
+    compliance_details TEXT,
+    retry_count INTEGER DEFAULT 0,
+    max_retries INTEGER DEFAULT 3,
+    last_error TEXT,
+    created_at TEXT,
+    updated_at TEXT
 );
 
 CREATE TABLE IF NOT EXISTS raw_stock (
@@ -87,6 +97,7 @@ CREATE TABLE IF NOT EXISTS system_events (
 CREATE INDEX IF NOT EXISTS idx_posts_status ON posts(status);
 CREATE INDEX IF NOT EXISTS idx_posts_product ON posts(product_name);
 CREATE INDEX IF NOT EXISTS idx_posts_posted_at ON posts(posted_at);
+CREATE INDEX IF NOT EXISTS idx_posts_video_hash ON posts(video_hash);
 CREATE INDEX IF NOT EXISTS idx_raw_stock_product ON raw_stock(product_name);
 CREATE INDEX IF NOT EXISTS idx_raw_stock_last_used ON raw_stock(last_used);
 CREATE INDEX IF NOT EXISTS idx_caption_pool_product ON caption_pool(product_name);
@@ -118,20 +129,6 @@ class Database:
 
             # posts
             cols = {r["name"] for r in conn.execute("PRAGMA table_info(posts)")}
-            for col, ddl in (("description_text", "TEXT"),
-                             ("product_tag_text", "TEXT"),
-                             ("created_at", "TEXT"),
-                             ("updated_at", "TEXT"),
-                             ("video_hash", "TEXT"),
-                             ("source_path", "TEXT"),
-                             ("job_uuid", "TEXT"),
-                             ("compliance_status", "TEXT"),
-                             ("compliance_details", "TEXT"),
-                             ("retry_count", "INTEGER DEFAULT 0"),
-                             ("max_retries", "INTEGER DEFAULT 3"),
-                             ("last_error", "TEXT")):
-                if col not in cols:
-                    conn.execute(f"ALTER TABLE posts ADD COLUMN {col} {ddl}")
 
             # caption_pool
             cols = {r["name"] for r in conn.execute("PRAGMA table_info(caption_pool)")}

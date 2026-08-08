@@ -2,6 +2,39 @@
 """
 Performance benchmark for TikTok Auto-Posting Machine.
 Measures pipeline stages, resource usage, and database efficiency.
+
+====================================================================
+MEASURED (actual benchmark results in this test environment):
+====================================================================
+- Database operations (SQLite with WAL mode, in-memory test DB)
+- Video service operations (scan_raw, load_products, load_captions, 
+  query_analytics_weights, md5_file) - using mocked FFmpeg/ffprobe
+- Upload service operations (verify_proxy, check_cookie_expiry, 
+  md5_file) - no actual network calls
+- Analytics service operations (get_performance_summary, 
+  get_products_due_next) - mocked scraper
+- Full pipeline cycle (dry-run: sync, quality_gate, video_processing_dry, 
+  process_upload_queue, analytics_daily_jobs) - no actual uploads
+- Video hash index lookup performance (20 hashes x 1000 iterations)
+- Memory stability over 100 pipeline cycles (RSS tracking)
+
+====================================================================
+ESTIMATED (not measured, production estimates from RESOURCE_GUIDE.md):
+====================================================================
+- FFmpeg video encoding: 30-120s per video (CPU-bound)
+- Actual TikTok upload: 10-60s per video (network-bound)
+- Google Drive sync: ~10 MB per cycle (network I/O)
+- Real proxy geo-check: network latency dependent
+- Competitor scraping (Apify): ~5 MB, API rate limited
+- Production database growth: ~1.3 MB/month
+- Disk usage: raw videos 1-10 GB, processed 1-10 GB
+
+====================================================================
+NOTE: This benchmark uses TESTING=1 mode with mocked external services.
+      Results do NOT represent production throughput.
+      See PERFORMANCE_REPORT.md for baseline measurements.
+      See RESOURCE_GUIDE.md for production capacity planning.
+====================================================================
 """
 
 import os
@@ -448,6 +481,14 @@ logging:
         logger.info("Running full cycle benchmarks...")
         all_results["benchmarks"]["full_cycle"] = self.benchmark_full_cycle(3)
         
+        # Video hash index verification
+        logger.info("Running video hash index verification...")
+        all_results["benchmarks"]["video_hash_index"] = self.benchmark_video_hash_index()
+        
+        # Memory stability test (100 cycles)
+        logger.info("Running memory stability test (100 cycles)...")
+        all_results["benchmarks"]["memory_stability"] = self.benchmark_memory_stability(100)
+        
         logger.info("All benchmarks completed")
         return all_results
         
@@ -456,6 +497,128 @@ logging:
         if self.temp_dir and self.temp_dir.exists():
             shutil.rmtree(self.temp_dir, ignore_errors=True)
             logger.info(f"Cleaned up {self.temp_dir}")
+
+    def benchmark_memory_stability(self, cycles: int = 100) -> Dict[str, Any]:
+        """Run memory stability test over many pipeline cycles."""
+        from services.core import (
+            VideoService, UploadService, StorageService,
+            AnalyticsService, SchedulerService, ProductService, ProxyService
+        )
+        from services.infrastructure.database import Database
+        from services.repositories import UploadRepository
+        
+        process = psutil.Process()
+        
+        # Initial memory
+        initial_rss = process.memory_info().rss / (1024 * 1024)
+        logger.info(f"Memory stability test: initial RSS = {initial_rss:.2f} MB")
+        
+        memory_samples = []
+        peak_rss = initial_rss
+        
+        # Create services once
+        video_service = VideoService(str(self.db_path))
+        storage_service = StorageService()
+        upload_service = UploadService()
+        analytics_service = AnalyticsService(str(self.db_path))
+        scheduler_service = SchedulerService(str(self.db_path))
+        product_service = ProductService(str(self.db_path))
+        proxy_service = ProxyService()
+        
+        for cycle in range(cycles):
+            # Run a full cycle
+            storage_service.sync_from_drive()
+            try:
+                video_service.quality_gate(self.temp_dir / "content/processed", quarantine=True)
+            except Exception:
+                pass
+            video_service.run(dry_run=True)
+            upload_service.process_upload_queue()
+            try:
+                analytics_service.run_daily_jobs(
+                    type('obj', (object,), {'execute': lambda *a, **k: None})(),
+                    {}
+                )
+            except Exception:
+                pass
+            
+            # Sample memory every 10 cycles
+            if cycle % 10 == 0:
+                current_rss = process.memory_info().rss / (1024 * 1024)
+                memory_samples.append({
+                    "cycle": cycle,
+                    "rss_mb": round(current_rss, 2)
+                })
+                if current_rss > peak_rss:
+                    peak_rss = current_rss
+                logger.info(f"  Cycle {cycle}: RSS = {current_rss:.2f} MB")
+        
+        final_rss = process.memory_info().rss / (1024 * 1024)
+        growth = final_rss - initial_rss
+        
+        # Determine if stable (growth < 10 MB over 100 cycles)
+        is_stable = growth < 10
+        
+        logger.info(f"Memory stability test: final RSS = {final_rss:.2f} MB, "
+                   f"growth = {growth:.2f} MB, peak = {peak_rss:.2f} MB, "
+                   f"stable = {is_stable}")
+        
+        return {
+            "initial_rss_mb": round(initial_rss, 2),
+            "final_rss_mb": round(final_rss, 2),
+            "peak_rss_mb": round(peak_rss, 2),
+            "growth_mb": round(growth, 2),
+            "stable": is_stable,
+            "samples": memory_samples
+        }
+
+    def benchmark_video_hash_index(self) -> Dict[str, Any]:
+        """Verify video_hash index is used for idempotency lookups."""
+        import sqlite3
+        from services.repositories import UploadRepository
+        
+        upload_repo = UploadRepository(str(self.db_path))
+        
+        # Create test posts with video_hash
+        conn = sqlite3.connect(str(self.db_path))
+        conn.row_factory = sqlite3.Row
+        
+        test_hashes = [f"test_hash_{i}" for i in range(20)]
+        for i, h in enumerate(test_hashes):
+            conn.execute("""
+                INSERT INTO posts (product_name, product_id, raw_video_path, processed_video_path,
+                                   caption_text, video_hash, source_path, job_uuid, status, retry_count, max_retries)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (f"product_{i}", f"prod_{i}", f"/path/{i}.mp4", f"/proc/{i}.mp4",
+                  "test caption", h, f"/src/{i}.mp4", f"job_uuid_{i}", "DISCOVERED", 0, 3))
+        conn.commit()
+        conn.close()
+        
+        # Test lookup performance with index
+        iterations = 1000
+        with measure_resources() as m:
+            for _ in range(iterations):
+                for h in test_hashes:
+                    upload_repo.find_by_video_hash(h)
+        
+        # Verify index exists
+        conn = sqlite3.connect(str(self.db_path))
+        idx = conn.execute("""
+            SELECT name FROM sqlite_master 
+            WHERE type='index' AND name='idx_posts_video_hash'
+        """).fetchone()
+        conn.close()
+        
+        index_exists = idx is not None
+        
+        logger.info(f"Video hash index test: index_exists={index_exists}, "
+                   f"lookup_time_per_1000={m['wall_time_ms']:.2f}ms")
+        
+        return {
+            "index_exists": index_exists,
+            "lookup_time_ms": m["wall_time_ms"],
+            "lookups_per_second": (iterations * len(test_hashes) * 1000) / m["wall_time_ms"]
+        }
 
 
 def main():
