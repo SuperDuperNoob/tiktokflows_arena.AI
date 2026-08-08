@@ -17,6 +17,10 @@ Endpoints:
   POST /api/actions/sync    — Trigger Google Drive sync
   POST /api/actions/test-proxy — Test proxy connection
   GET  /api/actions/cookie-status — Check cookie age
+  GET  /api/growth-report   — Cached growth report
+  GET  /api/ops-report      — Daily OPS report
+  GET  /api/queue-status    — Upload queue status
+  GET  /api/analytics       — Analytics chart data
 
 Run: python3 server.py
 Access: http://localhost:8080 (tunnel via cloudflared)
@@ -27,6 +31,7 @@ import json
 import yaml
 import shutil
 import tempfile
+import time
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Optional
@@ -36,12 +41,46 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
-# Add scripts to path
-SCRIPT_DIR = Path(__file__).parent.parent / "scripts"
-sys.path.insert(0, str(SCRIPT_DIR))
+# Services layer imports
+from services.infrastructure.config import get_config
+from services.infrastructure.database import Database
+from services.repositories import (
+    UploadRepository,
+    ProductRepository,
+    CaptionRepository,
+    AnalyticsRepository,
+    EventRepository,
+    StockRepository,
+)
+from services.infrastructure.sidecar_adapter import SidecarAdapter
+from services.core.storage_service import StorageService
+from services.utils.paths import (
+    growth_report as growth_report_path,
+    daily_report as daily_report_path,
+    queue_dir,
+    drive_root,
+)
+from services.utils.timezone import local_today
+from services.utils.db_utils import (
+    get_conn,
+    ensure_schema,
+    consumed_pending_cleanup,
+)
+from services.utils.burn_log import recent_burns, quality_check as burn_quality_check
+from services.utils.queue import queue_count
+from services.utils.stock import scan_stock
+from services.utils.analytics import (
+    posts_per_day,
+    recent_posts,
+    views_delta,
+)
+from services.utils.quality import clamp_telegram
+from services.models.caption import Caption, CaptionSource
+from services.models.product import Product
+from scripts.compliance import ComplianceEngine
+from services.infrastructure.logging import get_logger
 
-from db import Database
-from compliance import ComplianceEngine
+logger = get_logger("webapp")
 
 # Paths
 PROJECT_ROOT = Path(__file__).parent.parent
@@ -49,12 +88,24 @@ CONFIG_PATH = PROJECT_ROOT / "config" / "config.yaml"
 DB_PATH = PROJECT_ROOT / "logs" / "tiktok.db"
 PRODUCTS_PATH = PROJECT_ROOT / "content" / "products.json"
 
-# Load config
-with open(CONFIG_PATH, "r") as f:
-    CONFIG = yaml.safe_load(f)
+# Load config via services config (singleton)
+_cfg = get_config()
+CONFIG = _cfg.get_section("")
 
-# Initialize DB
+# Initialize repositories
 db = Database(str(DB_PATH))
+upload_repo = UploadRepository(str(DB_PATH))
+product_repo = ProductRepository(str(DB_PATH))
+caption_repo = CaptionRepository(str(DB_PATH))
+analytics_repo = AnalyticsRepository(str(DB_PATH))
+event_repo = EventRepository(str(DB_PATH))
+stock_repo = StockRepository(str(DB_PATH))
+
+# Sidecar adapter for queue
+sidecar_adapter = SidecarAdapter(queue_dir())
+
+# Storage service for sync
+storage_service = StorageService()
 
 app = FastAPI(title="TikTok Auto-Posting Machine", version="1.0")
 
@@ -70,6 +121,7 @@ class ConfigUpdate(BaseModel):
     key: str
     value: str
 
+
 class CaptionAdd(BaseModel):
     product_name: Optional[str] = None
     caption_text: str
@@ -77,13 +129,16 @@ class CaptionAdd(BaseModel):
     product_tag_text: Optional[str] = None
     source: str = "manual"
 
+
 class ProductAdd(BaseModel):
     name: str
     product_id: str
 
+
 class TagAdd(BaseModel):
     product_name: str
     tag: str
+
 
 class ActionResponse(BaseModel):
     success: bool
@@ -103,26 +158,20 @@ async def root():
 @app.get("/api/status")
 async def get_status():
     """Full dashboard data."""
-    posted_today = db.get_posted_count_today()
+    posted_today = upload_repo.get_today_count()
     target = CONFIG.get("posting", {}).get("daily_post_target", 7)
-    stock_counts = db.get_raw_stock_counts()
+    stock_counts = stock_repo.get_stock_counts()
     products_due = db.get_products_due_next()
-    recent_events = db.get_recent_events(limit=10)
-    recent_posts = []
-
-    with db._connect() as conn:
-        rows = conn.execute(
-            "SELECT * FROM posts ORDER BY posted_at DESC LIMIT 5"
-        ).fetchall()
-        recent_posts = [dict(r) for r in rows]
+    recent_events = event_repo.get_recent(limit=10)
+    recent_posts_list = upload_repo.get_recent(limit=5)
 
     # Performance summary
-    perf = db.get_performance_summary(days=7)
+    perf = analytics_repo.get_own_performance(days=7)
 
     # Cookie status
     cookie_status = get_cookie_status()
 
-    # Drive cleanup (minimal: pending deletes + how many were cleaned today)
+    # Drive cleanup
     drive_cleanup = get_drive_cleanup_status()
 
     return {
@@ -131,7 +180,7 @@ async def get_status():
         "stock_counts": stock_counts,
         "products_due": products_due,
         "recent_events": recent_events,
-        "recent_posts": recent_posts,
+        "recent_posts": recent_posts_list,
         "performance": perf,
         "cookie_status": cookie_status,
         "drive_cleanup": drive_cleanup,
@@ -142,7 +191,7 @@ async def get_status():
 # ── Configuration ────────────────────────────────────────────────────────
 
 @app.get("/api/config")
-async def get_config():
+async def get_config_endpoint():
     """Return current configuration (secrets masked)."""
     config = load_config()
     # Mask sensitive values
@@ -182,8 +231,8 @@ async def update_config(payload: ConfigUpdate):
         config[section][key] = payload.value
 
     save_config(config)
-    db.log_event("CONFIG_CHANGE", f"{section}.{key} changed",
-                 metadata={"old": str(old_value), "new": str(config[section][key])})
+    event_repo.log_event("CONFIG_CHANGE", f"{section}.{key} changed",
+                         metadata={"old": str(old_value), "new": str(config[section][key])})
 
     return {"success": True, "section": section, "key": key, "value": config[section][key]}
 
@@ -193,20 +242,15 @@ async def update_config(payload: ConfigUpdate):
 @app.get("/api/posts")
 async def get_posts(limit: int = 50, product: Optional[str] = None, status: Optional[str] = None):
     """Get posts with optional filters."""
-    with db._connect() as conn:
-        query = "SELECT * FROM posts WHERE 1=1"
-        params = []
-        if product:
-            query += " AND product_name = ?"
-            params.append(product)
-        if status:
-            query += " AND status = ?"
-            params.append(status)
-        query += " ORDER BY posted_at DESC LIMIT ?"
-        params.append(limit)
+    if product:
+        posts = upload_repo.get_by_product(product, limit=limit)
+    else:
+        posts = upload_repo.get_recent(limit=limit)
 
-        rows = conn.execute(query, params).fetchall()
-        return [dict(r) for r in rows]
+    if status:
+        posts = [p for p in posts if p.status.value == status]
+
+    return [p.__dict__ for p in posts]
 
 
 # ── Captions ─────────────────────────────────────────────────────────────
@@ -214,16 +258,8 @@ async def get_posts(limit: int = 50, product: Optional[str] = None, status: Opti
 @app.get("/api/captions")
 async def get_captions(product: Optional[str] = None):
     """Get caption pool, optionally filtered by product."""
-    if product:
-        captions = db.get_caption_pool_for_product(product)
-    else:
-        # Get all
-        with db._connect() as conn:
-            rows = conn.execute(
-                "SELECT * FROM caption_pool ORDER BY times_used DESC"
-            ).fetchall()
-            captions = [dict(r) for r in rows]
-    return captions
+    captions = caption_repo.get_all_for_product(product) if product else caption_repo.get_by_product(None, limit=1000)
+    return [c.__dict__ for c in captions]
 
 
 @app.post("/api/captions")
@@ -238,15 +274,16 @@ async def add_caption(payload: CaptionAdd):
     if not approved:
         raise HTTPException(400, f"Caption rejected: {issues}")
 
-    db.add_caption(
+    caption = Caption(
         product_name=payload.product_name,
         caption_text=final_text,
         description_text=payload.description_text,
         product_tag_text=payload.product_tag_text,
-        source=payload.source,
+        source=CaptionSource(payload.source),
         compliance_checked=True,
         original_text=payload.caption_text if final_text != payload.caption_text else None,
     )
+    caption_repo.create(caption)
 
     return {"success": True, "caption": final_text, "issues": issues}
 
@@ -256,81 +293,48 @@ async def add_caption(payload: CaptionAdd):
 @app.get("/api/products")
 async def get_products():
     """Get product list from products.json and config."""
-    products = {}
-    if PRODUCTS_PATH.exists():
-        with open(PRODUCTS_PATH, "r") as f:
-            try:
-                products = json.load(f)
-            except:
-                pass
+    products = product_repo.get_all()
+    # Enrich with stock counts
+    stock_counts = stock_repo.get_stock_counts()
+    for p in products:
+        p.stock_count = stock_counts.get(p.name, 0)
+    return [p.__dict__ for p in products]
 
-    # Merge with config product details
-    config_products = CONFIG.get("products", {})
-    result = []
-    for name, data in products.items():
-        if isinstance(data, dict):
-            product_id = data.get("id", "")
-            tags = data.get("yellow_bag_tags", [])
-        else:
-            product_id = str(data)
-            tags = []
-
-        detail = config_products.get(name, {})
-        stock = db.get_raw_stock_counts().get(name, 0)
-        result.append({
-            "name": name,
-            "product_id": product_id,
-            "yellow_bag_tags": tags,
-            "description": detail.get("description", ""),
-            "keywords": detail.get("keywords", []),
-            "stock": stock,
-        })
-
-    return result
 
 @app.post("/api/products")
 async def add_product(payload: ProductAdd):
     """Add a new product, update JSON, and create its raw folder."""
-    products = {}
-    if PRODUCTS_PATH.exists():
-        with open(PRODUCTS_PATH, "r") as f:
-            try:
-                products = json.load(f)
-            except Exception:
-                pass
-    
-    # Store using dict format so we can add tags later
-    products[payload.name] = {
-        "id": payload.product_id,
-        "yellow_bag_tags": []
-    }
-    
-    with open(PRODUCTS_PATH, "w") as f:
-        json.dump(products, f, indent=2)
-        
+    product = Product(
+        name=payload.name,
+        product_id=payload.product_id,
+    )
+    product_repo.save(product)
+
     # Create raw folder
     raw_dir = PROJECT_ROOT / CONFIG.get("content", {}).get("raw_dir", "content/raw")
     product_dir = raw_dir / payload.name
     product_dir.mkdir(parents=True, exist_ok=True)
-    
+
     dummy_file = product_dir / ".keep"
     if not dummy_file.exists():
         dummy_file.write_text("keep folder for Google Drive sync")
-        
+
     return {"status": "success", "message": f"Added product {payload.name}"}
+
 
 @app.post("/api/products/tags")
 async def add_product_tag(payload: TagAdd):
     """Add a yellow bag tag to a product."""
+    # Load existing products.json
     if not PRODUCTS_PATH.exists():
         raise HTTPException(400, "products.json not found")
-        
+
     with open(PRODUCTS_PATH, "r") as f:
         products = json.load(f)
-        
+
     if payload.product_name not in products:
         raise HTTPException(404, "Product not found")
-        
+
     data = products[payload.product_name]
     if not isinstance(data, dict):
         products[payload.product_name] = {
@@ -343,24 +347,25 @@ async def add_product_tag(payload: TagAdd):
             tags.append(payload.tag)
         data["yellow_bag_tags"] = tags
         products[payload.product_name] = data
-        
+
     with open(PRODUCTS_PATH, "w") as f:
         json.dump(products, f, indent=2)
-        
+
     return {"status": "success"}
+
 
 @app.delete("/api/products/tags")
 async def remove_product_tag(payload: TagAdd):
     """Remove a yellow bag tag from a product."""
     if not PRODUCTS_PATH.exists():
         raise HTTPException(400, "products.json not found")
-        
+
     with open(PRODUCTS_PATH, "r") as f:
         products = json.load(f)
-        
+
     if payload.product_name not in products:
         raise HTTPException(404, "Product not found")
-        
+
     data = products[payload.product_name]
     if isinstance(data, dict):
         tags = data.get("yellow_bag_tags", [])
@@ -368,10 +373,10 @@ async def remove_product_tag(payload: TagAdd):
             tags.remove(payload.tag)
         data["yellow_bag_tags"] = tags
         products[payload.product_name] = data
-        
+
         with open(PRODUCTS_PATH, "w") as f:
             json.dump(products, f, indent=2)
-            
+
     return {"status": "success"}
 
 
@@ -380,17 +385,8 @@ async def remove_product_tag(payload: TagAdd):
 @app.get("/api/events")
 async def get_events(limit: int = 50, event_type: Optional[str] = None):
     """Get system events."""
-    with db._connect() as conn:
-        query = "SELECT * FROM system_events WHERE 1=1"
-        params = []
-        if event_type:
-            query += " AND event_type = ?"
-            params.append(event_type)
-        query += " ORDER BY occurred_at DESC LIMIT ?"
-        params.append(limit)
-
-        rows = conn.execute(query, params).fetchall()
-        return [dict(r) for r in rows]
+    events = event_repo.get_recent(limit=limit, event_type=event_type)
+    return events
 
 
 # ── Actions ──────────────────────────────────────────────────────────────
@@ -399,15 +395,7 @@ async def get_events(limit: int = 50, event_type: Optional[str] = None):
 async def trigger_sync():
     """Trigger Google Drive sync."""
     try:
-        from sync_drive import DriveSyncer
-        syncer = DriveSyncer({
-            "rclone_remote": CONFIG["google_drive"]["rclone_remote"],
-            "remote_path": CONFIG["google_drive"]["remote_path"],
-            "products_file": CONFIG["google_drive"]["products_file"],
-            "raw_dir": CONFIG["content"]["raw_dir"],
-            "min_stock_warning": CONFIG["content"].get("min_stock_warning", 5),
-        }, db)
-        success, stock_report = syncer.sync()
+        success, stock_report = storage_service.sync_from_drive()
         return {"success": success, "stock_report": stock_report}
     except Exception as e:
         raise HTTPException(500, str(e))
@@ -488,7 +476,6 @@ async def trigger_relogin():
             }
         else:
             return {"success": False, "message": result.stderr[:500]}
-
     except subprocess.TimeoutExpired:
         return {"success": False, "message": "QR login timed out (120s)"}
     except Exception as e:
@@ -509,7 +496,7 @@ async def get_qr_image(path: str = Query(...)):
     return FileResponse(path, media_type="image/png")
 
 
-# ── Reports & queue (Phase 3 additions) ─────────────────────────────────
+# ── Reports & queue ─────────────────────────────────────────────────────
 
 def _read_report(path: Path) -> str | None:
     try:
@@ -523,27 +510,22 @@ def _read_report(path: Path) -> str | None:
 @app.get("/api/growth-report")
 async def growth_report():
     """Cached growth analysis from ai_growth.py (growth_report.txt)."""
-    import lib as _lib
-    text = _read_report(_lib.growth_report())
+    text = _read_report(growth_report_path())
     return {"exists": text is not None, "report": text or "(no growth report yet - run ai_growth.py --ai)"}
 
 
 @app.get("/api/ops-report")
 async def ops_report():
     """Daily OPS report from generate_report.py (daily_report.txt)."""
-    import lib as _lib
-    text = _read_report(_lib.daily_report())
+    text = _read_report(daily_report_path())
     return {"exists": text is not None, "report": text or "(no ops report yet - run generate_report.py)"}
 
 
 @app.get("/api/queue-status")
 async def queue_status():
     """Upload queue: rendered videos with their sidecar metadata."""
-    import lib as _lib
-    from sidecar_manager import SidecarManager
-    manager = SidecarManager(_lib.queue_dir())
     items = []
-    for mp4, _primary, meta in manager.find():
+    for mp4, _primary, meta in sidecar_adapter.find():
         items.append({
             "filename": mp4.name,
             "product_folder": meta.get("product_folder", ""),
@@ -558,16 +540,10 @@ async def queue_status():
 
 @app.get("/api/analytics")
 async def analytics(days: int = 7):
-    """Chart data from the analytics schema (views over time, by product).
-
-    Reads the same logs/tiktok.db analytics tables that reconcile_metrics,
-    ai_growth and generate_report use. Returns empty series on a fresh install
-    so the frontend can show "no data yet" instead of erroring.
-    """
-    import lib as _lib
-    conn = _lib.get_conn()
-    _lib.ensure_schema(conn)
-    since = (_lib.local_today() - timedelta(days=days)).isoformat()
+    """Chart data from the analytics schema (views over time, by product)."""
+    conn = get_conn()
+    ensure_schema(conn)
+    since = (local_today() - timedelta(days=days)).isoformat()
 
     views_by_day = [dict(r) for r in conn.execute(
         """SELECT snap_date, SUM(views) AS views
@@ -617,6 +593,7 @@ def load_config() -> dict:
     with open(CONFIG_PATH, "r") as f:
         return yaml.safe_load(f)
 
+
 def save_config(config: dict):
     # Write to temp file first, then atomic rename
     with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False,
@@ -625,6 +602,7 @@ def save_config(config: dict):
         tmp_path = tmp.name
     shutil.move(tmp_path, str(CONFIG_PATH))
 
+
 def mask_secret(value: str) -> str:
     if not value or len(value) < 8:
         return "***"
@@ -632,20 +610,14 @@ def mask_secret(value: str) -> str:
 
 
 def get_drive_cleanup_status() -> dict:
-    """Minimal Drive-cleanup indicator: raws deleted from Drive today + pending.
-
-    'pending' = consumed raws whose Drive copy hasn't been deleted yet (will be
-    retried by sync_out). 'deleted_today' = lines in drive_cleanup.log stamped
-    on today's date (business timezone MYT).
-    """
+    """Minimal Drive-cleanup indicator: raws deleted from Drive today + pending."""
     try:
-        import lib as _lib
         # Pending deletes (consumed but not yet removed from Drive).
-        pending = len(_lib.consumed_pending_cleanup())
+        pending = len(consumed_pending_cleanup())
         # Cleaned today from the audit log.
-        today = _lib.local_today().isoformat()
+        today = local_today().isoformat()
         deleted_today = 0
-        cl = _lib.drive_cleanup_log()
+        cl = drive_root() / "logs" / "drive_cleanup.log"
         if cl.exists():
             for line in cl.read_text(encoding="utf-8", errors="ignore").splitlines():
                 if line.startswith(today):
@@ -653,6 +625,7 @@ def get_drive_cleanup_status() -> dict:
         return {"pending": pending, "deleted_today": deleted_today}
     except Exception:
         return {"pending": 0, "deleted_today": 0}
+
 
 def get_cookie_status() -> dict:
     session_user = CONFIG.get("tiktok", {}).get("session_username", "myshop")
