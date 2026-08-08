@@ -34,8 +34,8 @@ class CorrelationFilter(logging.Filter):
         return True
 
 
-class SecretMaskingFilter(logging.Filter):
-    """Mask secrets in log records before they are emitted."""
+class StructuredFormatter(logging.Formatter):
+    """Structured log formatter with correlation ID and secret masking."""
 
     # Patterns for common secret types
     MASK_PATTERNS = [
@@ -53,36 +53,31 @@ class SecretMaskingFilter(logging.Filter):
         (re.compile(r'https?://[^:\s]+:[^@\s]+@'), r'http://***:***@'),
     ]
 
-    def filter(self, record: logging.LogRecord) -> bool:
-        # Mask secrets in the message
-        if hasattr(record, 'msg') and isinstance(record.msg, str):
-            record.msg = self._mask_string(record.msg)
-        # Also mask args if they are strings
-        if hasattr(record, 'args') and record.args:
-            masked_args = []
-            for arg in record.args:
-                if isinstance(arg, str):
-                    masked_args.append(self._mask_string(arg))
-                else:
-                    masked_args.append(arg)
-            record.args = tuple(masked_args)
-        return True
-
     def _mask_string(self, value: str) -> str:
         """Mask secrets in a string."""
         for pattern, replacement in self.MASK_PATTERNS:
             value = pattern.sub(replacement, value)
         return value
 
-
-class StructuredFormatter(logging.Formatter):
-    """Structured log formatter with correlation ID."""
-
     def format(self, record: logging.LogRecord) -> str:
         # Ensure correlation_id is present
         if not hasattr(record, "correlation_id"):
             record.correlation_id = correlation_id_var.get() or "-"
-        return super().format(record)
+        # Format the message first
+        formatted = super().format(record)
+        # Then mask secrets in the final formatted message
+        return self._mask_string(formatted)
+
+
+class SecretMaskingFilter(logging.Filter):
+    """Mask secrets in log records before they are emitted.
+
+    Note: This filter is kept for backward compatibility but the main
+    masking is now done in StructuredFormatter.format().
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        return True
 
 
 def setup_logging(
@@ -128,7 +123,6 @@ def setup_logging(
     console_handler = logging.StreamHandler(sys.stdout)
     console_handler.setLevel(numeric_level)
     console_handler.addFilter(CorrelationFilter())
-    console_handler.addFilter(SecretMaskingFilter())
 
     if json_format:
         console_handler.setFormatter(
@@ -162,7 +156,6 @@ def setup_logging(
         )
         file_handler.setLevel(numeric_level)
         file_handler.addFilter(CorrelationFilter())
-        file_handler.addFilter(SecretMaskingFilter())
 
         if json_format:
             file_handler.setFormatter(
