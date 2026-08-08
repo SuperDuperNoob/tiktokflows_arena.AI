@@ -39,18 +39,21 @@ class StructuredFormatter(logging.Formatter):
 
     # Patterns for common secret types
     MASK_PATTERNS = [
-        # API keys
+        # API keys - matches "API key: sk-..." or "api_key=sk-..."
         (re.compile(r'(?i)(api[_-]?key|apikey)\s*[:=]\s*["\']?([^"\'\s]+)'), r'\1=****'),
+        (re.compile(r'(?i)(api\s+key)\s*[:=]\s*["\']?([^"\'\s]+)'), r'\1=****'),
         # Tokens
         (re.compile(r'(?i)(token|access[_-]?token|bearer)\s*[:=]\s*["\']?([^"\'\s]+)'), r'\1=****'),
         # Passwords
         (re.compile(r'(?i)(password|passwd|secret)\s*[:=]\s*["\']?([^"\'\s]+)'), r'\1=****'),
         # Cookies/session
         (re.compile(r'(?i)(cookie|session[_-]?id)\s*[:=]\s*["\']?([^"\'\s]+)'), r'\1=****'),
-        # Proxy URLs with credentials
+        # Proxy URLs with credentials - matches "proxy: http://..." or "proxy_url=..."
         (re.compile(r'(?i)(proxy[_-]?(?:url|endpoint)?)\s*[:=]\s*["\']?(https?://[^"\'\s]+)'), r'\1=****'),
-        # URLs with credentials in general
+        # URLs with credentials in general - matches "http://user:pass@host"
         (re.compile(r'https?://[^:\s]+:[^@\s]+@'), r'http://***:***@'),
+        # Proxy URLs without explicit key - matches "http://user:pass@host:port" anywhere
+        (re.compile(r'(https?://)([^:@\s]+):([^:@\s]+)@'), r'\1***:***@'),
     ]
 
     def _mask_string(self, value: str) -> str:

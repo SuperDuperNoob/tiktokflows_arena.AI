@@ -153,6 +153,20 @@ def mask_proxy(url: str) -> Optional[str]:
     if not url:
         return None
     try:
+        # Handle shorthand format: user:pass@host:port
+        if "@" in url and "://" not in url:
+            # Shorthand format: user:pass@host:port or host:port:user:pass
+            parts = url.split("@")
+            if len(parts) == 2:
+                creds = parts[0]
+                host_port = parts[1]
+                if ":" in creds:
+                    user, pwd = creds.split(":", 1)
+                    user_masked = f"{user[:3]}***@" if len(user) > 3 else "***@"
+                else:
+                    user_masked = "***@"
+                return f"http://{user_masked}{host_port}"
+        
         norm = normalize_proxy_url(url)
         from urllib.parse import urlparse
         p = urlparse(norm if "://" in norm else f"http://{norm}")

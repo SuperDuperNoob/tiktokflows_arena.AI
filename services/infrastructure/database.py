@@ -131,7 +131,12 @@ class Database:
 
     def _init_schema(self):
         with self._connect() as conn:
+            # First, run legacy column migration (v4) to ensure all columns exist
+            # before executescript tries to create indexes on those columns
+            self._migration_v4_legacy_columns(conn)
+            # Now run the main schema (tables, indexes)
             conn.executescript(SCHEMA)
+            # Run remaining migrations
             self._run_migrations(conn)
 
     def _get_current_version(self, conn) -> int:
@@ -151,7 +156,11 @@ class Database:
         if current_version >= target_version:
             return
 
-        for version in range(current_version + 1, target_version + 1):
+        # Note: v4 (legacy columns) is already run in _init_schema before executescript
+        # So we start from max(current_version + 1, 5) to skip v4
+        start_version = max(current_version + 1, 5) if current_version < 4 else current_version + 1
+        
+        for version in range(start_version, target_version + 1):
             migration_fn = self._Migrations.get(version)
             if migration_fn:
                 migration_fn(conn)
@@ -188,37 +197,44 @@ class Database:
 
     def _migration_v4_legacy_columns(self, conn):
         """Add legacy columns that were previously added via ad-hoc migrations."""
+        # Check if tables exist first
+        cursor = conn.execute("SELECT name FROM sqlite_master WHERE type='table'")
+        existing_tables = {row[0] for row in cursor.fetchall()}
+        
         # raw_stock legacy columns
-        cols = {r["name"] for r in conn.execute("PRAGMA table_info(raw_stock)")}
-        for col, ddl in (("file_hash", "TEXT"),
-                         ("posted_at", "TEXT"),
-                         ("drive_cleaned_at", "TEXT")):
-            if col not in cols:
-                conn.execute(f"ALTER TABLE raw_stock ADD COLUMN {col} {ddl}")
+        if "raw_stock" in existing_tables:
+            cols = {r["name"] for r in conn.execute("PRAGMA table_info(raw_stock)")}
+            for col, ddl in (("file_hash", "TEXT"),
+                             ("posted_at", "TEXT"),
+                             ("drive_cleaned_at", "TEXT")):
+                if col not in cols:
+                    conn.execute(f"ALTER TABLE raw_stock ADD COLUMN {col} {ddl}")
 
         # posts legacy columns
-        cols = {r["name"] for r in conn.execute("PRAGMA table_info(posts)")}
-        for col, ddl in (("description_text", "TEXT"),
-                         ("product_tag_text", "TEXT"),
-                         ("created_at", "TEXT"),
-                         ("updated_at", "TEXT"),
-                         ("video_hash", "TEXT"),
-                         ("source_path", "TEXT"),
-                         ("job_uuid", "TEXT"),
-                         ("compliance_status", "TEXT"),
-                         ("compliance_details", "TEXT"),
-                         ("retry_count", "INTEGER DEFAULT 0"),
-                         ("max_retries", "INTEGER DEFAULT 3"),
-                         ("last_error", "TEXT")):
-            if col not in cols:
-                conn.execute(f"ALTER TABLE posts ADD COLUMN {col} {ddl}")
+        if "posts" in existing_tables:
+            cols = {r["name"] for r in conn.execute("PRAGMA table_info(posts)")}
+            for col, ddl in (("description_text", "TEXT"),
+                             ("product_tag_text", "TEXT"),
+                             ("created_at", "TEXT"),
+                             ("updated_at", "TEXT"),
+                             ("video_hash", "TEXT"),
+                             ("source_path", "TEXT"),
+                             ("job_uuid", "TEXT"),
+                             ("compliance_status", "TEXT"),
+                             ("compliance_details", "TEXT"),
+                             ("retry_count", "INTEGER DEFAULT 0"),
+                             ("max_retries", "INTEGER DEFAULT 3"),
+                             ("last_error", "TEXT")):
+                if col not in cols:
+                    conn.execute(f"ALTER TABLE posts ADD COLUMN {col} {ddl}")
 
         # caption_pool legacy columns
-        cols = {r["name"] for r in conn.execute("PRAGMA table_info(caption_pool)")}
-        for col, ddl in (("description_text", "TEXT"),
-                         ("product_tag_text", "TEXT")):
-            if col not in cols:
-                conn.execute(f"ALTER TABLE caption_pool ADD COLUMN {col} {ddl}")
+        if "caption_pool" in existing_tables:
+            cols = {r["name"] for r in conn.execute("PRAGMA table_info(caption_pool)")}
+            for col, ddl in (("description_text", "TEXT"),
+                             ("product_tag_text", "TEXT")):
+                if col not in cols:
+                    conn.execute(f"ALTER TABLE caption_pool ADD COLUMN {col} {ddl}")
 
     @contextmanager
     def _connect(self):
