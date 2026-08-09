@@ -1,16 +1,16 @@
 """Quality constants and checks."""
 
 import os
-from config import cfg as _cfg
+from services.infrastructure.config import cfg
 
 
 # A burn below this MB/s is a quality regression. Mirrors process-videos-v4.sh.
 MIN_MB_PER_SEC = float(os.environ.get("MIN_MB_PER_SEC") or
-                       _cfg("encoding", "min_mb_per_sec", default=0.30) or 0.30)
+                       cfg("encoding", "min_mb_per_sec", default=0.30) or 0.30)
 
 # Fewer frames than this => the burn is a still image, not a video.
 MIN_OUTPUT_FRAMES = int(os.environ.get("MIN_OUTPUT_FRAMES") or
-                        _cfg("encoding", "min_output_frames", default=10) or 10)
+                        cfg("encoding", "min_output_frames", default=10) or 10)
 
 
 # Telegram hard-caps a message at 4096 chars.

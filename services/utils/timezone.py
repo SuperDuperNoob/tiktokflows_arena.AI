@@ -8,7 +8,7 @@ try:
 except ImportError:  # py < 3.9
     ZoneInfo = None  # type: ignore[assignment]
 
-from config import cfg as _cfg
+from services.infrastructure.config import cfg
 
 
 # MYT timezone offset (UTC+8).
@@ -16,12 +16,12 @@ MYT_OFFSET = timedelta(hours=8)
 MYT = timezone(MYT_OFFSET)
 
 TIMEZONE = os.environ.get("TIKTOKFLOW_TZ") or \
-    _cfg("timezone", "tz", default="Asia/Kuala_Lumpur") or "Asia/Kuala_Lumpur"
+    cfg("timezone", "tz", default="Asia/Kuala_Lumpur") or "Asia/Kuala_Lumpur"
 
 OWN_HANDLE = (os.environ.get("TIKTOK_SESSION_USER")
-              or _cfg("tiktok", "session_username") or "kumpul.shop").lower()
+              or cfg("tiktok", "session_username") or "kumpul.shop").lower()
 RIVAL_HANDLE = (os.environ.get("TIKTOK_RIVAL_HANDLE")
-                or _cfg("analytics", "rival_handle")
+                or cfg("analytics", "rival_handle")
                 or "reski.reski700").lower()
 
 
