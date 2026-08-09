@@ -11,9 +11,7 @@ sys.path.insert(0, PROJECT_ROOT)
 sys.path.insert(0, SCRIPTS_DIR)
 
 from services.core.analytics_service import AnalyticsService
-from services.infrastructure.database import Database
-from services.utils.db_utils import get_conn, ensure_schema
-from services.utils.paths import daily_report as daily_report_path
+from services.utils.paths import db_path
 
 logger = logging.getLogger(__name__)
 
@@ -28,20 +26,11 @@ def main() -> int:
                     help="lookback window in days (default 3)")
     args = ap.parse_args()
 
-    from services.utils.db_utils import get_conn, ensure_schema
-    from services.infrastructure.database import Database
-    from services.utils.paths import db_path
-
-    db = Database(str(db_path()))
-    conn = get_conn()
-    ensure_schema(conn)
-    conn.close()
-
-    service = AnalyticsService(db.db_path)
-
-    report = service.generate_ops_report(days=args.days)
+    service = AnalyticsService(str(db_path()))
+    report = service.generate_ops_report(days=args.days, full=args.full)
     print(report)
 
+    from services.utils.paths import daily_report as daily_report_path
     try:
         daily_report_path().parent.mkdir(parents=True, exist_ok=True)
         daily_report_path().write_text(report, encoding="utf-8")
