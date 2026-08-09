@@ -24,6 +24,8 @@ CONFIG_PATH.write_text(
     "logging:\n  db_path: logs/tiktok.db\n"
     "content:\n  raw_dir: content/raw\n  processed_dir: content/processed\n"
     "  failed_dir: content/failed\n  sounds_dir: sounds\n"
+    "tiktok:\n  session_username: \"kumpul.shop\"\n"
+    "analytics:\n  rival_handle: \"reski.reski700\"\n"
     "proxy:\n  endpoint: ''\n  strict_mode: true\n  geo_check: true\n",
     encoding="utf-8")
 os.environ["TIKTOK_MACHINE_CONFIG"] = str(CONFIG_PATH)

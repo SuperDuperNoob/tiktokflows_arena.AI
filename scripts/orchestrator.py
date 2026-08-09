@@ -283,7 +283,7 @@ class Orchestrator:
         try:
             from services.infrastructure.config import get_config
             cfg = get_config()
-            queue_dir = Path(cfg.get("content", "processed_dir", "content/processed"))
+            queue_dir = Path(cfg.get("content", "processed_dir", default="content/processed"))
             queue_dir.mkdir(parents=True, exist_ok=True)
             self.video_service.quality_gate(queue_dir, quarantine=True)
         except Exception as e:

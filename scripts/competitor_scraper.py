@@ -1,5 +1,4 @@
-"""
-Competitor Monitoring via Apify — TikTok Scraper (clockworks/tiktok-scraper)
+"""Competitor Scraper via Apify — TikTok Scraper (clockworks/tiktok-scraper)
 
 Chosen actor: `clockworks/tiktok-scraper`. This is the same actor the
 battle-tested tiktokflow_vps pipeline ran in production, and its output fields
@@ -21,14 +20,17 @@ from __future__ import annotations
 
 import json
 import logging
+import sys
 import time
 from datetime import date, datetime, timezone
 from typing import List, Optional
 
 import httpx
 
-import lib
-from db import Database
+from services.infrastructure.config import get_config
+from services.infrastructure.database import Database
+from services.utils.paths import db_path
+from services.utils.db_utils import get_conn, ensure_schema
 
 logger = logging.getLogger(__name__)
 
@@ -45,7 +47,9 @@ class CompetitorScraper:
         self.actor_id = config.get("actor_id", DEFAULT_ACTOR)
         competitors = config.get("competitors", [])
         # Default to own + rival handle so own metrics are always collected.
-        self.competitors = competitors or [lib.OWN_HANDLE, lib.RIVAL_HANDLE]
+        cfg = get_config()
+        self.competitors = competitors or [cfg.get("tiktok", "session_username", default="kumpul.shop"),
+                                           cfg.get("analytics", "rival_handle", default="reski.reski700")]
         self.results_per_page = config.get("results_per_page", 20)
         self.max_competitors = config.get("max_competitors", 5)
         self.db = db
@@ -167,8 +171,8 @@ class CompetitorScraper:
 
     def _store(self, handle: str, videos: List[dict]) -> None:
         """Write to analytics tables (competitor_daily + competitor_videos)."""
-        conn = lib.get_conn()
-        lib.ensure_schema(conn)
+        conn = get_conn()
+        ensure_schema(conn)
         snap = date.today().isoformat()
         captured = datetime.now(timezone.utc).isoformat()
 
@@ -182,18 +186,7 @@ class CompetitorScraper:
                     hashtag_freq[tag] = hashtag_freq.get(tag, 0) + 1
         top_hashtag = max(hashtag_freq, key=hashtag_freq.get, default="")
 
-        conn.execute("""
-            INSERT INTO competitor_daily
-                (handle, snap_date, followers, posts_today, top_sound_id,
-                 top_sound_name, top_hashtag, top_views, captured_at)
-            VALUES (?,?,?,?,?,?,?,?,?)
-            ON CONFLICT(handle, snap_date) DO UPDATE SET
-                followers=excluded.followers, posts_today=excluded.posts_today,
-                top_sound_id=excluded.top_sound_id,
-                top_sound_name=excluded.top_sound_name,
-                top_hashtag=excluded.top_hashtag, top_views=excluded.top_views,
-                captured_at=excluded.captured_at
-        """, (handle, snap,
+        conn.execute("""\n            INSERT INTO competitor_daily\n                (handle, snap_date, followers, posts_today, top_sound_id,\n                 top_sound_name, top_hashtag, top_views, captured_at)\n            VALUES (?,?,?,?,?,?,?,?,?)\n            ON CONFLICT(handle, snap_date) DO UPDATE SET\n                followers=excluded.followers, posts_today=excluded.posts_today,\n                top_sound_id=excluded.top_sound_id,\n                top_sound_name=excluded.top_sound_name,\n                top_hashtag=excluded.top_hashtag, top_views=excluded.top_views,\n                captured_at=excluded.captured_at\n        """, (handle, snap,
               (top.get("authorMeta") or {}).get("fans", 0),
               len(videos),
               str(music.get("musicId", "")),
@@ -222,17 +215,7 @@ class CompetitorScraper:
                 v.get("shareCount", 0), v.get("commentCount", 0),
                 posted, snap, captured))
         if rows:
-            conn.executemany("""
-                INSERT INTO competitor_videos
-                    (video_id, handle, caption, hashtags_json, sound_id,
-                     sound_name, sound_author, views, likes, shares, comments,
-                     posted_at, snap_date, captured_at)
-                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-                ON CONFLICT(video_id, snap_date) DO UPDATE SET
-                    views=excluded.views, likes=excluded.likes,
-                    shares=excluded.shares, comments=excluded.comments,
-                    captured_at=excluded.captured_at
-            """, rows)
+            conn.executemany("""\n                INSERT INTO competitor_videos\n                    (video_id, handle, caption, hashtags_json, sound_id,\n                     sound_name, sound_author, views, likes, shares, comments,\n                     posted_at, snap_date, captured_at)\n                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)\n                ON CONFLICT(video_id, snap_date) DO UPDATE SET\n                    views=excluded.views, likes=excluded.likes,\n                    shares=excluded.shares, comments=excluded.comments,\n                    captured_at=excluded.captured_at\n            """, rows)
         conn.commit()
 
         # Also feed the legacy dashboard table (competitor_data) for backwards
@@ -264,3 +247,20 @@ def run_daily_scrape(config: dict, db: Database) -> dict:
     """Module-level convenience function used by the orchestrator."""
     scraper = CompetitorScraper(config, db)
     return scraper.scrape_all()
+
+
+if __name__ == "__main__":
+    import argparse
+    logging.basicConfig(level=logging.INFO,
+                        format="%(asctime)s [%(levelname)s] %(message)s")
+    ap = argparse.ArgumentParser(description="Competitor Scraper via Apify")
+    ap.add_argument("--dry-run", action="store_true",
+                    help="skip actual scraping")
+    args = ap.parse_args()
+
+    if args.dry_run:
+        print("[dry-run] would scrape competitors")
+        sys.exit(0)
+
+    # Note: requires config and db to be set up properly
+    print("Competitor scraper - use orchestrator daily job or call service directly")

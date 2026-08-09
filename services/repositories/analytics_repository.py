@@ -121,8 +121,8 @@ class AnalyticsRepository(BaseRepository):
         # Get handles from config
         from services.infrastructure.config import get_config
         cfg = get_config()
-        own_handle = cfg.get("tiktok", "session_username", "kumpul.shop").lower()
-        rival_handle = cfg.get("analytics", "rival_handle", "reski.reski700").lower()
+        own_handle = cfg.get("tiktok", "session_username", default="kumpul.shop").lower()
+        rival_handle = cfg.get("analytics", "rival_handle", default="reski.reski700").lower()
 
         rows = self.fetchall(query, (own_handle, rival_handle))
         if len(rows) < 2:

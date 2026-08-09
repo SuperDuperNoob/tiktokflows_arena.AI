@@ -128,7 +128,7 @@ def test_proxy(config):
         print("❌ Proxy not configured — skipping test")
         return
 
-    from lib import mask_proxy
+    from services.utils.proxy import mask_proxy
     print(f"\n🌐 Testing proxy: {mask_proxy(proxy_url)}")
 
     try:
@@ -173,7 +173,7 @@ def add_seed_captions(db, config):
     """Add some seed captions to get started."""
     compliance_config = config.get("compliance", {})
     ai_config = config.get("ai", {})
-    from compliance_engine import ComplianceEngine
+    from compliance import ComplianceEngine
     engine = ComplianceEngine(compliance_config, ai_config=ai_config)
 
     products = config.get("products", {})

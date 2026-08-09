@@ -20,7 +20,7 @@ class ProductRepository(BaseRepository):
     def get_all(self) -> List[Product]:
         """Get all products from products.json."""
         cfg = get_config()
-        products_file = cfg.get("google_drive", "products_file", "content/products.json")
+        products_file = cfg.get("google_drive", "products_file", default="content/products.json")
 
         try:
             with open(products_file, "r") as f:
@@ -61,7 +61,7 @@ class ProductRepository(BaseRepository):
     def save(self, product: Product) -> None:
         """Save product to products.json."""
         cfg = get_config()
-        products_file = cfg.get("google_drive", "products_file", "content/products.json")
+        products_file = cfg.get("google_drive", "products_file", default="content/products.json")
 
         # Load existing
         try:
