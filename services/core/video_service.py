@@ -1,9 +1,19 @@
-"""Video processing service."""
+"""Video processing service.
+
+Merged implementation from scripts/video_processor.py (VideoProcessor)
+with services layer architecture.
+"""
 
 from typing import Any, Dict, List, Optional, Tuple
 from pathlib import Path
 import subprocess
 import shutil
+import json
+import random
+import hashlib
+import time
+import sqlite3
+from datetime import datetime
 
 from services.repositories import StockRepository
 from services.models import VideoAsset, VideoQuality
@@ -11,6 +21,9 @@ from services.infrastructure.ffmpeg_adapter import FFmpegAdapter
 from services.infrastructure.skia_adapter import SkiaAdapter
 import sys
 import os
+SCRIPTS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "scripts")
+sys.path.insert(0, SCRIPTS_DIR)
+
 import logging
 
 from services.infrastructure.config import get_config
@@ -32,30 +45,28 @@ from services.utils.quality import MIN_MB_PER_SEC, MIN_OUTPUT_FRAMES
 from services.utils.timezone import OWN_HANDLE, RIVAL_HANDLE
 from services.utils.db_utils import mark_raw_consumed, get_conn, ensure_schema
 from services.infrastructure.logging import get_logger
+from services.infrastructure.sidecar_adapter import SidecarAdapter
 
-import json
-import random
-import hashlib
-import time
-import sqlite3
-import shutil
-from datetime import datetime
-
-logger = get_logger("video_service")
-from caption_policy import (is_too_long, scan_caption, shorten, soften, soften_claims)
-from sidecar_manager import SidecarManager
+from caption_policy import (is_too_long, scan_caption, shorten, soften,
+                            soften_claims)
 from transform_video import TIKTOK_STYLES, TextRenderer, pick_style
 
-logger = logging.getLogger(__name__)
+logger = get_logger("video_service")
 
 
 class VideoService:
-    """Service for video processing and transformation."""
+    """Service for video processing and transformation.
+
+    Merged from scripts/video_processor.py VideoProcessor with services layer.
+    """
 
     def __init__(self, db_path: str):
         self.stock_repo = StockRepository(db_path)
         self.ffmpeg = FFmpegAdapter()
         self.skia = SkiaAdapter()
+        self.sidecars = SidecarAdapter(queue_dir())
+        self.renderer = TextRenderer()
+        self.config = get_config()
 
     def process_video(self, raw_video_path: Path, product_name: str,
                       caption: str, audio_mode: str = "mix") -> Dict[str, Any]:
@@ -100,27 +111,27 @@ class VideoService:
     def quality_gate(self, folder: Path, quarantine: bool = True) -> Tuple[int, int]:
         """
         Scan the upload queue for static-image burns.
-        
+
         Args:
             folder: Directory to scan
             quarantine: If True, move bad files to failed/ directory
-            
+
         Returns:
             Tuple of (total_clips, bad_clips)
         """
         if not folder.exists():
             return 0, 0
-        
+
         clips = sorted(
             f for ext in VIDEO_EXTS
             for f in folder.glob(f"*{ext}"))
-        
+
         if not clips:
             return 0, 0
 
         bad = 0
         quarantine_dir = failed_dir()
-        
+
         for clip in clips:
             n = self.frame_count(clip)
             d = self.duration(clip)
@@ -144,7 +155,7 @@ class VideoService:
         path = burn_jsonl()
         if not path.exists():
             return 0
-        
+
         suspicious = 0
         try:
             for line in path.read_text(encoding="utf-8", errors="ignore").splitlines():
@@ -164,7 +175,7 @@ class VideoService:
                         suspicious += 1
         except OSError:
             return 0
-        
+
         return suspicious
 
     # --- Malay market randomisation palette -------------------------------------
@@ -237,7 +248,8 @@ class VideoService:
         import re
         return [c.strip() for c in re.split(r"\n\s*---\s*\n", "\n" + content + "\n") if c.strip()]
 
-    def generate_malay_caption(self, product_info: dict, preset_caps: list, ai_caption: str | None = None) -> str:
+    def generate_malay_caption(self, product_info: dict, preset_caps: list,
+                               ai_caption: str | None = None) -> str:
         """Anti-spam Malay caption with random structure + policy gate."""
         base = random.choice(preset_caps) if preset_caps else "murah gila hari ni"
         if ai_caption:
@@ -455,7 +467,7 @@ class VideoService:
         prod_info = products.get(folder, {"id": "", "titles": [folder], "captions": [folder]})
 
         caption = self.generate_malay_caption(prod_info, preset_caps)
-        style = pick_style(get_config().get("rendering", "force_style"))
+        style = pick_style(self.config.get("rendering", "force_style"))
 
         # Sound selection.
         sound_dir = sounds_dir()
@@ -521,13 +533,16 @@ class VideoService:
         logger.info("Success %s %.2fMB (%.1fs, %s frames, %.2f MB/s, ~%s kbps, "
                     "crf=%s maxrate=%s preset=%s)",
                     output_video, fsize_mb, out_dur, out_frames, mb_per_sec,
-                    kbps, e["crf"], e["maxrate"], e["preset"])
+                    kbps, self._encode()["crf"], self._encode()["maxrate"],
+                    self._encode()["preset"])
         if low_quality:
             logger.warning("QUALITY REGRESSION: %.2f MB/s below %s floor. "
                            "Check FFMPEG_CRF (<=25) / maxrate.", mb_per_sec,
                            MIN_MB_PER_SEC)
 
         # Archive raw locally AND record it in the DB ledger (source of truth).
+        # deleted.log is kept as a human-readable AUDIT ONLY — it is no longer
+        # load-bearing (sync_out now reads the DB, not this file).
         processed_folder = processed_dir() / folder
         processed_folder.mkdir(parents=True, exist_ok=True)
         try:
@@ -597,8 +612,7 @@ class VideoService:
             "low_quality": low_quality,
             "encode": self._encode(),
         }
-        sidecars = SidecarManager(queue_dir())
-        sidecars.write(output_video, sidecar)
+        self.sidecars.write(output_video, sidecar)
 
         # Burn log for the growth engine + report.
         log_entry = {
@@ -675,3 +689,29 @@ class VideoService:
 
         return 0 if self.process_one(folder, stock_map[folder], products,
                                      preset_caps, burn_history, ts_id, ts_name) else 1
+
+
+def main() -> int:
+    logging.basicConfig(level=logging.INFO,
+                        format="%(asctime)s [%(levelname)s] %(message)s")
+    import argparse
+    ap = argparse.ArgumentParser(description="Burn one video + write sidecars")
+    ap.add_argument("--dry-run", action="store_true", help="plan only, write nothing")
+    args = ap.parse_args()
+
+    # flock so a systemd + manual run cannot both burn at once.
+    import fcntl
+    lockfile = Path("/tmp/tiktok-machine-video.lock")
+    lockfile.parent.mkdir(parents=True, exist_ok=True)
+    with open(lockfile, "w") as f:
+        try:
+            fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            print("[video_service] another run active, exiting")
+            return 0
+    db = db_path()
+    return VideoService(str(db)).run(dry_run=args.dry_run)
+
+
+if __name__ == "__main__":
+    sys.exit(main())
