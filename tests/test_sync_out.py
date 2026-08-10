@@ -52,7 +52,7 @@ def test_failed_delete_keeps_pending_and_does_not_duplicate(monkeypatch):
     # Still pending -> retried next run. But it is consumed, so the selector
     # (get_unused_raw_videos) will NOT return it -> no duplicate upload.
     assert len(lib.consumed_pending_cleanup()) == 1
-    from db import Database
+    from services.infrastructure.database import Database
     db = Database(str(lib.db_path()))
     unused = db.get_unused_raw_videos("Biocho")
     assert all(u["filename"] != "foo.mp4" for u in unused)
@@ -68,7 +68,7 @@ def test_nothing_pending_does_nothing(monkeypatch):
 
 
 def test_consumed_raw_excluded_from_stock_counts():
-    from db import Database
+    from services.infrastructure.database import Database
     db = Database(str(lib.db_path()))
     db.sync_raw_stock("Biocho", ["a.mp4", "b.mp4"])
     lib.mark_raw_consumed("Biocho", "a.mp4", "h")

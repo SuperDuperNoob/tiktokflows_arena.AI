@@ -40,17 +40,29 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-import lib
-from caption_policy import (is_too_long, scan_caption, shorten, soften,
-                            soften_claims)
 from sidecar_manager import SidecarManager
 
-# Reuse the modern 8-overlay-style system + renderer from transform_video.py.
-from transform_video import TIKTOK_STYLES, TextRenderer, pick_style
+# Reuse the modern 8-overlay-style system + renderer from services.transform.
+from services.transform import TIKTOK_STYLES, TextRenderer, pick_style
+from services.compliance.caption_policy import (is_too_long, scan_caption, shorten, soften,
+                            soften_claims)
+
+from services.infrastructure.config import get_config
+from services.utils.paths import (
+    VIDEO_EXTS, NON_PRODUCT_DIRS, drive_root, processed_dir, failed_dir,
+    queue_dir, sounds_dir, db_path, preset_txt, product_txt, burn_jsonl,
+    deleted_log
+)
+from services.utils.quality import clamp_telegram, MIN_MB_PER_SEC, MIN_OUTPUT_FRAMES
+from services.utils.timezone import OWN_HANDLE, RIVAL_HANDLE
+from services.utils.db_utils import mark_raw_consumed, get_conn, ensure_schema
+from services.utils.stock import scan_stock
+from services.utils.burn_log import recent_burns, quality_check as burn_quality_check
+from services.utils.queue import queue_count
 
 logger = logging.getLogger(__name__)
 
-VIDEO_EXTENSIONS = lib.VIDEO_EXTS
+VIDEO_EXTENSIONS = VIDEO_EXTS
 
 # --- Malay market randomisation palette -------------------------------------
 CTA_POOL = [
@@ -87,7 +99,7 @@ EMOJI_POOL = ["😭", "🥰", "🔥", "💛", "🤲", "🛒", "👇", "✨", "�
 def load_products() -> dict:
     """Parse product_id.txt:  folder | id | title / title | caption / caption """
     prods: dict[str, dict] = {}
-    path = lib.product_txt()
+    path = product_txt()
     if not path.exists():
         logger.warning("product_id.txt missing at %s", path)
         return prods
@@ -106,7 +118,7 @@ def load_products() -> dict:
 
 
 def load_captions() -> list:
-    path = lib.preset_txt()
+    path = preset_txt()
     if not path.exists():
         return []
     content = path.read_text(encoding="utf-8", errors="ignore")
@@ -177,18 +189,19 @@ class VideoProcessor:
     """One burn per run — low RAM, safe archive, sidecars, quality guards."""
 
     def __init__(self, config: dict | None = None):
-        self.config = config if config is not None else lib.config()
-        self.force_style = lib.cfg("rendering", "force_style")
+        cfg = get_config()
+        self.config = config if config is not None else cfg._data
+        self.force_style = cfg.get("rendering", "force_style")
         self.encoding = {
-            "crf": str(lib.cfg("encoding", "crf", default=23)),
-            "maxrate": str(lib.cfg("encoding", "maxrate", default="5M")),
-            "bufsize": str(lib.cfg("encoding", "bufsize", default="8M")),
-            "abr": str(lib.cfg("encoding", "abr", default="128k")),
-            "preset": str(lib.cfg("encoding", "preset", default="veryfast")),
-            "threads": str(lib.cfg("encoding", "threads", default=1)),
+            "crf": str(cfg.get("encoding", "crf", default=23)),
+            "maxrate": str(cfg.get("encoding", "maxrate", default="5M")),
+            "bufsize": str(cfg.get("encoding", "bufsize", default="8M")),
+            "abr": str(cfg.get("encoding", "abr", default="128k")),
+            "preset": str(cfg.get("encoding", "preset", default="veryfast")),
+            "threads": str(cfg.get("encoding", "threads", default=1)),
         }
         self.renderer = TextRenderer()
-        self.sidecars = SidecarManager(lib.queue_dir())
+        self.sidecars = SidecarManager(queue_dir())
 
     # ------------------------------------------------------------ helpers ----
 
@@ -241,14 +254,14 @@ class VideoProcessor:
     # ---------------------------------------------------------- selection ----
 
     def scan_raw(self) -> dict[str, list[Path]]:
-        root = lib.drive_root()
+        root = drive_root()
         stock: dict[str, list[Path]] = {}
         if not root.exists():
             return stock
         for entry in root.iterdir():
             if not entry.is_dir() or entry.name.startswith("."):
                 continue
-            if entry.name in lib.NON_PRODUCT_DIRS:
+            if entry.name in NON_PRODUCT_DIRS:
                 continue
             files = []
             for f in entry.iterdir():
@@ -267,7 +280,7 @@ class VideoProcessor:
         """product_folder -> perf score, plus best sound/hashtag from rival."""
         weights: dict[str, float] = {}
         best_sound_id = best_sound_name = None
-        db = lib.db_path()
+        db = db_path()
         if not db.exists():
             return weights, best_sound_id, best_sound_name
         try:
@@ -290,7 +303,7 @@ class VideoProcessor:
                 WHERE snap_date >= date('now','-7 days')
                   AND handle IN (?, ?)
                 GROUP BY sound_id ORDER BY avg_v DESC LIMIT 5
-                """, (lib.OWN_HANDLE, lib.RIVAL_HANDLE))
+                """, (OWN_HANDLE, RIVAL_HANDLE))
             rows = cur.fetchall()
             if rows:
                 chosen = random.choices(rows, weights=[r["avg_v"] or 1 for r in rows], k=1)[0]
@@ -306,7 +319,7 @@ class VideoProcessor:
         for folder, files in stock_map.items():
             if not files or folder not in products:
                 continue
-            if (lib.drive_root() / folder / "stop_post").exists():
+            if (drive_root() / folder / "stop_post").exists():
                 logger.info("Skip %s - stop_post marker", folder)
                 continue
             if folder in burn_history[-3:]:
@@ -373,152 +386,152 @@ class VideoProcessor:
     # -------------------------------------------------------------- burn ----
 
     def process_one(self, folder: str, files: list, products: dict,
-                    preset_caps: list, burn_history: list,
-                    trending_sound_id: str, trending_sound_name: str) -> bool:
-        root = lib.drive_root()
-        random.shuffle(files)
-        input_video, width, height = None, 1080, 1920
-        for cand in files:
+                        preset_caps: list, burn_history: list,
+                        trending_sound_id: str, trending_sound_name: str) -> bool:
+            root = drive_root()
+            random.shuffle(files)
+            input_video, width, height = None, 1080, 1920
+            for cand in files:
+                try:
+                    w, h = self.probe_resolution(cand)
+                    if w >= 360 and h >= 360:
+                        input_video, width, height = cand, w, h
+                        break
+                except Exception as e:
+                    logger.warning("Skip corrupt %s: %s", cand, e)
+                    continue
+            if not input_video:
+                logger.warning("No valid video in %s", folder)
+                return False
+
+            if folder not in products:
+                logger.warning(
+                    "'%s' missing from product_id.txt - title/caption fall back to "
+                    "the folder name and product_id is empty (no TikTok Shop anchor).",
+                    folder)
+            prod_info = products.get(folder, {"id": "", "titles": [folder],
+                                              "captions": [folder]})
+
+            caption = generate_malay_caption(prod_info, preset_caps)
+            style = pick_style(self.force_style)
+
+            # Sound selection.
+            sound_dir = sounds_dir()
+            soundtrack = sorted(sound_dir.glob("*.mp3")) if sound_dir.exists() else []
+            if not soundtrack:
+                logger.warning("No mp3 in soundtrack dir %s", sound_dir)
+                return False
+            selected_sound = random.choice(soundtrack)
+
+            # Randomisation.
+            speed = random.uniform(0.97, 1.06)
+            brightness = random.uniform(-0.04, 0.04)
+            contrast = random.uniform(0.97, 1.06)
+            trim_start = random.uniform(0, 0.8)
+            overlay_y = random.uniform(0.35, 0.50)
+
+            # Render caption PNG.
+            tmp_dir = "/dev/shm" if os.path.isdir("/dev/shm") and os.access("/dev/shm", os.W_OK) else "/tmp"
+            tmp_png = Path(tmp_dir) / f"caption_{folder}_{int(time.time())}_{random.randint(1000, 9999)}.png"
+            rendered = self.renderer.render(caption, style, width, height, str(tmp_png))
+            if not rendered or not tmp_png.exists():
+                logger.warning("PNG render failed; aborting burn for %s", folder)
+                return False
+
+            # Output name.
+            ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+            out_name = f"{folder}_{ts}_{random.randint(100, 999)}"
+            output_video = queue_dir() / f"{out_name}.mp4"
+
+            ok, err = self.encode(input_video, output_video, tmp_png, selected_sound,
+                                  width, height, speed, brightness, contrast,
+                                  trim_start, overlay_y)
+            tmp_png.unlink(missing_ok=True)
+            if not ok or not output_video.exists():
+                logger.error("FFmpeg failed for %s: %s", folder, err)
+                if output_video.exists():
+                    output_video.unlink(missing_ok=True)
+                return False
+
+            # Quality measurement.
+            fsize_mb = output_video.stat().st_size / (1024 * 1024)
+            out_dur = self.probe_duration(output_video)
+            out_frames = self.probe_frame_count(output_video)
+            mb_per_sec = fsize_mb / out_dur if out_dur else 0.0
+            kbps = int(fsize_mb * 8 * 1024 / out_dur) if out_dur else 0
+            low_quality = bool(out_dur and mb_per_sec < MIN_MB_PER_SEC)
+
+            # Motion guard: refuse to hand a still image to the uploader.
+            if out_frames and out_frames < MIN_OUTPUT_FRAMES:
+                logger.error(
+                    "BROKEN BURN: %s has %s frame(s) (%ss) - STATIC IMAGE. "
+                    "Quarantining; raw kept for retry.",
+                    output_video.name, out_frames, round(out_dur, 2))
+                failed_dir().mkdir(parents=True, exist_ok=True)
+                quarantine = failed_dir() / output_video.name
+                try:
+                    shutil.move(str(output_video), str(quarantine))
+                except OSError as e:
+                    logger.error("Quarantine failed (%s); deleting", e)
+                    output_video.unlink(missing_ok=True)
+                return False
+
+            logger.info("Success %s %.2fMB (%.1fs, %s frames, %.2f MB/s, ~%s kbps, "
+                        "crf=%s maxrate=%s preset=%s)",
+                        output_video, fsize_mb, out_dur, out_frames, mb_per_sec,
+                        kbps, self.encoding["crf"], self.encoding["maxrate"],
+                        self.encoding["preset"])
+            if low_quality:
+                logger.warning("QUALITY REGRESSION: %.2f MB/s below %s floor. "
+                               "Check FFMPEG_CRF (<=25) / maxrate.", mb_per_sec,
+                               MIN_MB_PER_SEC)
+
+            # Archive raw locally AND record it in the DB ledger (source of truth).
+            # deleted.log is kept as a human-readable AUDIT ONLY — it is no longer
+            # load-bearing (sync_out now reads the DB, not this file).
+            processed_folder = processed_dir() / folder
+            processed_folder.mkdir(parents=True, exist_ok=True)
             try:
-                w, h = self.probe_resolution(cand)
-                if w >= 360 and h >= 360:
-                    input_video, width, height = cand, w, h
-                    break
-            except Exception as e:
-                logger.warning("Skip corrupt %s: %s", cand, e)
-                continue
-        if not input_video:
-            logger.warning("No valid video in %s", folder)
-            return False
-
-        if folder not in products:
-            logger.warning(
-                "'%s' missing from product_id.txt - title/caption fall back to "
-                "the folder name and product_id is empty (no TikTok Shop anchor).",
-                folder)
-        prod_info = products.get(folder, {"id": "", "titles": [folder],
-                                          "captions": [folder]})
-
-        caption = generate_malay_caption(prod_info, preset_caps)
-        style = pick_style(self.force_style)
-
-        # Sound selection.
-        sound_dir = lib.sounds_dir()
-        soundtrack = sorted(sound_dir.glob("*.mp3")) if sound_dir.exists() else []
-        if not soundtrack:
-            logger.warning("No mp3 in soundtrack dir %s", sound_dir)
-            return False
-        selected_sound = random.choice(soundtrack)
-
-        # Randomisation.
-        speed = random.uniform(0.97, 1.06)
-        brightness = random.uniform(-0.04, 0.04)
-        contrast = random.uniform(0.97, 1.06)
-        trim_start = random.uniform(0, 0.8)
-        overlay_y = random.uniform(0.35, 0.50)
-
-        # Render caption PNG.
-        tmp_dir = "/dev/shm" if os.path.isdir("/dev/shm") and os.access("/dev/shm", os.W_OK) else "/tmp"
-        tmp_png = Path(tmp_dir) / f"caption_{folder}_{int(time.time())}_{random.randint(1000, 9999)}.png"
-        rendered = self.renderer.render(caption, style, width, height, str(tmp_png))
-        if not rendered or not tmp_png.exists():
-            logger.warning("PNG render failed; aborting burn for %s", folder)
-            return False
-
-        # Output name.
-        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-        out_name = f"{folder}_{ts}_{random.randint(100, 999)}"
-        output_video = lib.queue_dir() / f"{out_name}.mp4"
-
-        ok, err = self.encode(input_video, output_video, tmp_png, selected_sound,
-                              width, height, speed, brightness, contrast,
-                              trim_start, overlay_y)
-        tmp_png.unlink(missing_ok=True)
-        if not ok or not output_video.exists():
-            logger.error("FFmpeg failed for %s: %s", folder, err)
-            if output_video.exists():
-                output_video.unlink(missing_ok=True)
-            return False
-
-        # Quality measurement.
-        fsize_mb = output_video.stat().st_size / (1024 * 1024)
-        out_dur = self.probe_duration(output_video)
-        out_frames = self.probe_frame_count(output_video)
-        mb_per_sec = fsize_mb / out_dur if out_dur else 0.0
-        kbps = int(fsize_mb * 8 * 1024 / out_dur) if out_dur else 0
-        low_quality = bool(out_dur and mb_per_sec < lib.MIN_MB_PER_SEC)
-
-        # Motion guard: refuse to hand a still image to the uploader.
-        if out_frames and out_frames < lib.MIN_OUTPUT_FRAMES:
-            logger.error(
-                "BROKEN BURN: %s has %s frame(s) (%ss) - STATIC IMAGE. "
-                "Quarantining; raw kept for retry.",
-                output_video.name, out_frames, round(out_dur, 2))
-            lib.failed_dir().mkdir(parents=True, exist_ok=True)
-            quarantine = lib.failed_dir() / output_video.name
-            try:
-                shutil.move(str(output_video), str(quarantine))
-            except OSError as e:
-                logger.error("Quarantine failed (%s); deleting", e)
-                output_video.unlink(missing_ok=True)
-            return False
-
-        logger.info("Success %s %.2fMB (%.1fs, %s frames, %.2f MB/s, ~%s kbps, "
-                    "crf=%s maxrate=%s preset=%s)",
-                    output_video, fsize_mb, out_dur, out_frames, mb_per_sec,
-                    kbps, self.encoding["crf"], self.encoding["maxrate"],
-                    self.encoding["preset"])
-        if low_quality:
-            logger.warning("QUALITY REGRESSION: %.2f MB/s below %s floor. "
-                           "Check FFMPEG_CRF (<=25) / maxrate.", mb_per_sec,
-                           lib.MIN_MB_PER_SEC)
-
-        # Archive raw locally AND record it in the DB ledger (source of truth).
-        # deleted.log is kept as a human-readable AUDIT ONLY — it is no longer
-        # load-bearing (sync_out now reads the DB, not this file).
-        processed_folder = lib.processed_dir() / folder
-        processed_folder.mkdir(parents=True, exist_ok=True)
-        try:
-            dest = processed_folder / input_video.name
-            shutil.move(str(input_video), str(dest))
-            rel = f"{folder}/{input_video.name}"
-            # Audit journal (optional; review only).
-            try:
-                with open(lib.deleted_log(), "a") as dl:
-                    dl.write(rel + "\n")
-            except OSError:
-                pass
-            # DB ledger: mark this raw consumed so it is never re-selected and
-            # sync_out deletes its Drive copy.
-            try:
-                lib.mark_raw_consumed(folder, input_video.name,
+                dest = processed_folder / input_video.name
+                shutil.move(str(input_video), str(dest))
+                rel = f"{folder}/{input_video.name}"
+                # Audit journal (optional; review only).
+                try:
+                    with open(deleted_log(), "a") as dl:
+                        dl.write(rel + "\n")
+                except OSError:
+                    pass
+                # DB ledger: mark this raw consumed so it is never re-selected and
+                # sync_out deletes its Drive copy.
+                try:
+                    mark_raw_consumed(folder, input_video.name,
                                       file_hash=md5_file(dest))
-                logger.info("Ledger: marked %s consumed (posted_at set)", rel)
-            except Exception as e:
-                logger.warning("Ledger write failed for %s: %s", rel, e)
-        except OSError as e:
-            logger.warning("Archive failed: %s", e)
+                    logger.info("Ledger: marked %s consumed (posted_at set)", rel)
+                except Exception as e:
+                    logger.warning("Ledger write failed for %s: %s", rel, e)
+            except OSError as e:
+                logger.warning("Archive failed: %s", e)
 
-        # Build sidecar metadata.
-        title = random.choice(prod_info["titles"]) if prod_info.get("titles") else folder
-        hashtags = [f"#{folder.lower()}", "#tiktokshop", "#murah", "#begkuning"]
-        try:
-            db = lib.db_path()
-            if db.exists():
-                conn = sqlite3.connect(str(db))
-                row = conn.execute(
-                    "SELECT top_hashtag FROM competitor_daily "
-                    "WHERE handle=? ORDER BY snap_date DESC LIMIT 1",
-                    (lib.RIVAL_HANDLE,)).fetchone()
-                if row and row[0]:
-                    hashtags.append(f"#{row[0].lstrip('#')}")
-                conn.close()
-        except Exception:
-            pass
-        if random.random() < 0.6:
-            title = f"{title} {random.choice(['🔥', '😭', '👇', '✨'])}"
+            # Build sidecar metadata.
+            title = random.choice(prod_info["titles"]) if prod_info.get("titles") else folder
+            hashtags = [f"#{folder.lower()}", "#tiktokshop", "#murah", "#begkuning"]
+            try:
+                db = db_path()
+                if db.exists():
+                    conn = sqlite3.connect(str(db))
+                    row = conn.execute(
+                        "SELECT top_hashtag FROM competitor_daily "
+                        "WHERE handle=? ORDER BY snap_date DESC LIMIT 1",
+                        (RIVAL_HANDLE,)).fetchone()
+                    if row and row[0]:
+                        hashtags.append(f"#{row[0].lstrip('#')}")
+                    conn.close()
+            except Exception:
+                pass
+            if random.random() < 0.6:
+                title = f"{title} {random.choice(['🔥', '😭', '👇', '✨'])}"
 
-        sidecar = {
+            sidecar = {
             "product_id": prod_info.get("id", ""),
             "product_folder": folder,
             "title": title,
@@ -545,10 +558,10 @@ class VideoProcessor:
             "low_quality": low_quality,
             "encode": self._encode(),
         }
-        self.sidecars.write(output_video, sidecar)
+            self.sidecars.write(output_video, sidecar)
 
-        # Burn log for the growth engine + report.
-        log_entry = {
+            # Burn log for the growth engine + report.
+            log_entry = {
             "timestamp": datetime.now().isoformat(),
             "folder": folder,
             "product_id": sidecar["product_id"],
@@ -571,57 +584,57 @@ class VideoProcessor:
             "low_quality": low_quality,
             "encode": self._encode(),
         }
-        with open(lib.burn_jsonl(), "a", encoding="utf-8") as jl:
-            jl.write(json.dumps(log_entry, ensure_ascii=False) + "\n")
-        return True
+            with open(burn_jsonl(), "a", encoding="utf-8") as jl:
+                jl.write(json.dumps(log_entry, ensure_ascii=False) + "\n")
+            return True
 
     def run(self, dry_run: bool = False) -> int:
-        lib.queue_dir().mkdir(parents=True, exist_ok=True)
-        # Clean the queue of files older than 24h so a failed retry isn't deleted.
-        for f in lib.queue_dir().glob("*"):
-            if f.is_file() and (time.time() - f.stat().st_mtime) > 1440 * 60:
+            queue_dir().mkdir(parents=True, exist_ok=True)
+            # Clean the queue of files older than 24h so a failed retry isn't deleted.
+            for f in queue_dir().glob("*"):
+                if f.is_file() and (time.time() - f.stat().st_mtime) > 1440 * 60:
+                    try:
+                        f.unlink()
+                    except OSError:
+                        pass
+
+            for tool in ("python3", "ffmpeg", "ffprobe"):
+                if shutil.which(tool) is None:
+                    logger.error("Missing required tool: %s", tool)
+                    return 1
+
+            products = load_products()
+            preset_caps = load_captions()
+            logger.info("Loaded %d products, %d preset captions",
+                        len(products), len(preset_caps))
+
+            stock_map = self.scan_raw()
+            if not stock_map:
+                logger.warning("No videos to process")
+                return 0
+
+            burn_history = []
+            if burn_jsonl().exists():
                 try:
-                    f.unlink()
-                except OSError:
+                    for line in burn_jsonl().read_text().strip().splitlines()[-20:]:
+                        burn_history.append(json.loads(line).get("folder"))
+                except Exception:
                     pass
 
-        for tool in ("python3", "ffmpeg", "ffprobe"):
-            if shutil.which(tool) is None:
-                logger.error("Missing required tool: %s", tool)
-                return 1
+            perf_weights, ts_id, ts_name = self.query_analytics_weights()
+            folder = self.pick_product_folder(products, stock_map, perf_weights,
+                                              burn_history)
+            if not folder:
+                logger.warning("No folder picked")
+                return 0
 
-        products = load_products()
-        preset_caps = load_captions()
-        logger.info("Loaded %d products, %d preset captions",
-                    len(products), len(preset_caps))
+            if dry_run:
+                print(f"[dry-run] would process folder={folder} "
+                      f"videos={[f.name for f in stock_map[folder]]}")
+                return 0
 
-        stock_map = self.scan_raw()
-        if not stock_map:
-            logger.warning("No videos to process")
-            return 0
-
-        burn_history = []
-        if lib.burn_jsonl().exists():
-            try:
-                for line in lib.burn_jsonl().read_text().strip().splitlines()[-20:]:
-                    burn_history.append(json.loads(line).get("folder"))
-            except Exception:
-                pass
-
-        perf_weights, ts_id, ts_name = self.query_analytics_weights()
-        folder = self.pick_product_folder(products, stock_map, perf_weights,
-                                          burn_history)
-        if not folder:
-            logger.warning("No folder picked")
-            return 0
-
-        if dry_run:
-            print(f"[dry-run] would process folder={folder} "
-                  f"videos={[f.name for f in stock_map[folder]]}")
-            return 0
-
-        return 0 if self.process_one(folder, stock_map[folder], products,
-                                     preset_caps, burn_history, ts_id, ts_name) else 1
+            return 0 if self.process_one(folder, stock_map[folder], products,
+                                         preset_caps, burn_history, ts_id, ts_name) else 1
 
 
 def main() -> int:

@@ -27,8 +27,8 @@ os.environ["TESTING"] = "1"
 # Import test environment
 from tests.e2e_test_env import TestEnvironment, PipelineTestContext
 
-# Import compliance engine from scripts (doesn't need config)
-from scripts.compliance import ComplianceEngine
+# Import compliance engine from services (doesn't need config)
+from services.compliance import ComplianceEngine
 
 # Logger will be initialized in PipelineVerifier
 logger = None

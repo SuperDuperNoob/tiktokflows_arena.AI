@@ -181,11 +181,6 @@ class TestEnvironment:
         """Create isolated test database with schema."""
         self.db_path = self.temp_dir / "logs" / "test_tiktok.db"
         
-        # Initialize scripts/config.py Config FIRST (before any imports that might trigger it)
-        from scripts.config import Config as ScriptsConfig
-        ScriptsConfig.reset_instance()
-        ScriptsConfig.get_instance(Path(self._config_path))
-        
         # Initialize services/infrastructure/config.py Config
         from services.infrastructure.config import Config as InfraConfig
         InfraConfig.reset_instance()

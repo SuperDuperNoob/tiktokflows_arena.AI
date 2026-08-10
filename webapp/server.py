@@ -77,7 +77,7 @@ from services.utils.analytics import (
 from services.utils.quality import clamp_telegram
 from services.models.caption import Caption, CaptionSource
 from services.models.product import Product
-from scripts.compliance import ComplianceEngine
+from services.compliance import ComplianceEngine
 from services.infrastructure.logging import get_logger
 
 logger = get_logger("webapp")

@@ -29,7 +29,7 @@ from telegram.ext import (
     Application, CommandHandler, ContextTypes, MessageHandler, filters
 )
 
-from db import Database
+from services.infrastructure.database import Database
 from ai_growth import AIGrowthEngine
 from compliance import ComplianceEngine
 

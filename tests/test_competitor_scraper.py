@@ -4,7 +4,7 @@ schema mapping that reconcile/ai_growth depend on. Apify HTTP is mocked.
 """
 import datetime
 
-from db import Database
+from services.infrastructure.database import Database
 import lib
 from competitor_scraper import CompetitorScraper, DEFAULT_ACTOR
 

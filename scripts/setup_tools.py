@@ -163,7 +163,7 @@ def init_db():
     if not os.path.isabs(db_path):
         db_path = os.path.join(PROJECT_ROOT, db_path)
 
-    from db import Database
+    from services.infrastructure.database import Database
     db = Database(db_path)
     print(f"✅ Database initialized at {db_path}")
     return db

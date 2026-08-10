@@ -237,7 +237,7 @@ class AIAdapter:
 
     def _build_prompt(self, a: Dict[str, Any]) -> str:
         """Build the AI prompt for growth engine."""
-        from caption_policy import AI_CAPTION_RULES, MAX_CAPTION_CHARS
+        from services.compliance.caption_policy import AI_CAPTION_RULES, MAX_CAPTION_CHARS
         from services.utils.timezone import human
 
         own = "\n".join(
@@ -299,7 +299,7 @@ Balas JSON sahaja:
 
     def _enforce_policy(self, captions: List[str]) -> Tuple[List[str], List[str]]:
         """Enforce caption policy on generated captions."""
-        from caption_policy import (AI_CAPTION_RULES, MAX_CAPTION_CHARS, dedup_key,
+        from services.compliance.caption_policy import (AI_CAPTION_RULES, MAX_CAPTION_CHARS, dedup_key,
                                     is_too_long, scan_caption, shorten, soften,
                                     soften_claims)
         kept, rejected = [], []
@@ -346,7 +346,7 @@ Balas JSON sahaja:
 
     def _fallback(self, a: Dict[str, Any]) -> Dict[str, Any]:
         """Local fallback when AI is unavailable."""
-        from caption_policy import MAX_CAPTION_CHARS
+        from services.compliance.caption_policy import MAX_CAPTION_CHARS
         FALLBACK_POOL = [
             "tiba tiba jatuh teruk 😭 beg kuning bawah",
             "eh murah gila hari ni, aku pun terkejut 🔥",

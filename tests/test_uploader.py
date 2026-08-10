@@ -155,6 +155,15 @@ def test_no_proxy_skips_geo_check(monkeypatch):
     os.environ.pop("TIKTOK_PROXY", None)
     monkeypatch.setattr("requests.get",
                         lambda *a, **k: (_ for _ in ()).throw(AssertionError("should not call")))
+    # Mock config to return empty proxy
+    import services.infrastructure.config as config_module
+    original_get = config_module.get_config
+    def mock_get_config():
+        cfg = original_get()
+        # Override proxy endpoint to empty
+        cfg._data["proxy"]["endpoint"] = ""
+        return cfg
+    monkeypatch.setattr(config_module, "get_config", mock_get_config)
     u = Uploader(config={}, dry_run=True)
     assert u.proxy_url is None
     assert u.verify_proxy() is True

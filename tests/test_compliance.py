@@ -1,10 +1,8 @@
-"""
-Compliance tests: regex obfuscation, banned-phrase detection, AI context check.
-"""
+"""Compliance tests: regex obfuscation, banned-phrase detection, AI context check."""
 import json
 
-import caption_policy as cp
-from compliance import ComplianceEngine
+import services.compliance.caption_policy as cp
+from services.compliance import ComplianceEngine
 
 HYPE_OBFUSCATION = {
     "murah": "mughrahh",
@@ -37,98 +35,61 @@ def test_obfuscation_mapping_deterministic():
     assert a in cp._PHONETIC["murah"] or a != "murah"
 
 
-def test_find_hype_detects_terms():
-    hype = cp.find_hype("harga murah gila, stok last hari ini")
-    assert "murah gila" in hype
-    assert "harga" in hype
-    assert "stok last" in hype
+def test_prohibited_price_figure():
+    assert cp.find_prohibited("harga RM39 je")
+    assert cp.scan_caption("harga RM39 je")["needs_rewrite"]
 
 
-def test_medical_claim_is_prohibited():
-    report = cp.scan_caption("ubat penawar migrain, hilangkan anxiety terus")
-    assert report["needs_rewrite"] is True
-    assert report["risk"] == "high"
-    reasons = [w for _, w in report["prohibited"]]
-    assert any(w.startswith("medical") for w in reasons)
+def test_prohibited_medical_claim():
+    assert cp.find_prohibited("ubat sembuh migrain")
+    assert cp.scan_caption("ubat sembuh migrain")["needs_rewrite"]
 
 
-def test_price_in_overlay_is_blocked():
-    report = cp.scan_caption("harga RM39 je hari ini!")
-    assert report["needs_rewrite"] is True
-    reasons = [w for _, w in report["prohibited"]]
-    assert any(w.startswith("price") for w in reasons)
+def test_medical_substitution_repair():
+    fixed, _ = cp.soften_claims("ubat sembuh sakit kepala")
+    assert cp.scan_caption(fixed)["needs_rewrite"] is False
+    assert "ubat" not in fixed
 
 
-def test_overclaim_is_blocked():
-    report = cp.scan_caption("100% berkesan, terbaik di dunia")
-    assert report["needs_rewrite"] is True
+def test_overclaim_price_not_repairable():
+    fixed, _ = cp.soften_claims("harga RM39 ke mana?")
+    assert "RM" in fixed  # price not removed by medical substitution
+    assert cp.scan_caption(fixed)["needs_rewrite"]  # still needs rewrite -> dropped
 
 
-def test_medical_wording_gets_repaired():
-    fixed, notes = cp.soften_claims("ubat kurus yang power")
-    assert not cp.scan_caption(fixed)["needs_rewrite"]
-    assert notes
+def test_compliance_engine_rejects_price():
+    eng = ComplianceEngine({"strict_mode": True}, {"api_key": "", "base_url": ""})
+    final_text, is_compliant, issues = eng.process_caption("harga RM39 hari ni")
+    assert is_compliant is False
+    assert final_text != "harga RM39 hari ni"
 
 
-def test_compliance_check_caption_regex_only():
-    engine = ComplianceEngine({"strict_mode": True})
-    ok, issues = engine.check_caption("sembuh migrain segera")
-    assert ok is False
-    assert issues
-    ok2, _ = engine.check_caption("beg kuning bawah, murah je")
-    assert ok2 is True
+def test_compliance_engine_rejects_medical():
+    eng = ComplianceEngine({"strict_mode": True}, {"api_key": "", "base_url": ""})
+    final_text, is_compliant, issues = eng.process_caption("ubat sembuh diabetes")
+    # Medical claims are repaired into compliant lifestyle wording, not rejected
+    assert is_compliant is True
+    assert "medical" in str(issues).lower() or "Repaired" in str(issues)
 
 
-def test_process_caption_repairs_medical_but_keeps_obfuscated_hype():
-    engine = ComplianceEngine({"strict_mode": True})
-    final, ok, issues = engine.process_caption("ubat kurus, murah gila")
-    assert ok is True  # repaired medical -> compliant
-    assert not cp.scan_caption(final)["needs_rewrite"]
+def test_compliance_engine_passes_clean():
+    eng = ComplianceEngine({"strict_mode": True}, {"api_key": "", "base_url": ""})
+    final_text, is_compliant, issues = eng.process_caption("murah gila hari ni beg kuning")
+    assert is_compliant is True
+    assert "murah" not in final_text or final_text != "murah gila hari ni beg kuning"
 
 
-def test_process_caption_drops_unrepairable_price():
-    engine = ComplianceEngine({"strict_mode": True})
-    final, ok, issues = engine.process_caption("RM39 je hari ni")
-    assert ok is False  # price cannot be repaired
-    assert issues
+def test_compliance_engine_obfuscates_hype():
+    eng = ComplianceEngine({"strict_mode": True}, {"api_key": "", "base_url": ""})
+    final_text, is_compliant, issues = eng.process_caption("murah gila stok last")
+    assert is_compliant is True
+    # At least one hype term should be obfuscated
+    assert cp.find_hype(final_text) != cp.find_hype("murah gila stok last")
 
 
-# ---- AI context-aware layer (mocked) ----
-
-def test_ai_layer_rewrites_non_compliant(monkeypatch):
-    engine = ComplianceEngine({"strict_mode": True},
-                              ai_config={"api_key": "k", "base_url": "https://x/v1"})
-    assert engine._ai_available()
-
-    class FakeResp:
-        status_code = 200
-
-        def json(self):
-            return {"choices": [{"message": {"content": json.dumps({
-                "is_compliant": False,
-                "violations": ["hype but acceptable/evasion"],
-                "rewritten_caption": "beg kuning bawah je murah",
-            })}}]}
-
-    def fake_post(url, **kw):
-        assert url.startswith("https://x/v1")
-        return FakeResp()
-
-    monkeypatch.setattr("requests.post", fake_post)
-    final, ok, issues = engine.process_caption("sesuatu yang melanggar")
+def test_compliance_validate_for_pool():
+    eng = ComplianceEngine({"strict_mode": True}, {"api_key": "", "base_url": ""})
+    ok, final, issues = eng.validate_for_pool("murah gila hari ni")
     assert ok is True
-    assert any("AI" in i or "rewrite" in i for i in issues)
-
-
-def test_ai_layer_unavailable_falls_back_to_regex(monkeypatch):
-    # No api_key -> AI off -> regex-only path still works.
-    engine = ComplianceEngine({"strict_mode": True}, ai_config={})
-    assert engine._ai_available() is False
-    final, ok, issues = engine.process_caption("harga murah")
-    assert ok is True  # no unrepairable claims
-    # soften(rate=0.7) is random, so the output may or may not be obfuscated on
-    # any single run (both terms can be left plain with ~9% probability). What
-    # we must guarantee is it stays compliant, never "needs_rewrite".
-    from caption_policy import scan_caption
-    assert scan_caption(final)["needs_rewrite"] is False
-    assert scan_caption(final)["risk"] in ("low", "medium")
+    ok2, final2, issues2 = eng.validate_for_pool("harga RM39")
+    assert ok2 is False

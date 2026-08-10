@@ -47,9 +47,9 @@ from services.utils.db_utils import mark_raw_consumed, get_conn, ensure_schema
 from services.infrastructure.logging import get_logger
 from services.infrastructure.sidecar_adapter import SidecarAdapter
 
-from caption_policy import (is_too_long, scan_caption, shorten, soften,
+from services.compliance.caption_policy import (is_too_long, scan_caption, shorten, soften,
                             soften_claims)
-from transform_video import TIKTOK_STYLES, TextRenderer, pick_style
+from services.transform import TIKTOK_STYLES, TextRenderer, pick_style
 
 logger = get_logger("video_service")
 
