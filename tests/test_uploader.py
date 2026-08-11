@@ -4,8 +4,7 @@ External APIs are mocked - no real proxy traffic in the test suite.
 """
 import os
 
-import lib
-from lib import (check_proxy_exit, is_proxy_transport_error, mask_proxy,
+from services.utils.proxy import (check_proxy_exit, is_proxy_transport_error, mask_proxy,
                  normalize_proxy_url)
 from uploader import Uploader
 

@@ -29,9 +29,7 @@ from tests.e2e_test_env import TestEnvironment, PipelineTestContext
 
 # Import compliance engine from services (doesn't need config)
 from services.compliance import ComplianceEngine
-
-# Logger will be initialized in PipelineVerifier
-logger = None
+from services.infrastructure.sidecar_adapter import SidecarAdapter
 
 
 class PipelineTestResult:
@@ -144,7 +142,7 @@ class PipelineVerifier:
         def mock_process_one(folder, files, products, preset_caps, burn_history, trending_sound_id, trending_sound_name):
             # Simulate successful processing: create output file in queue AND sidecars
             from services.utils.paths import queue_dir
-            from scripts.sidecar_manager import SidecarManager
+            from services.infrastructure.sidecar_adapter import SidecarAdapter
             import random
             from datetime import datetime
             ts = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -165,7 +163,7 @@ class PipelineVerifier:
                 "file_size_mb": 10.0,
                 "duration_s": 30.0,
             }
-            SidecarManager(queue_dir()).write(output_video, sidecar)
+            SidecarAdapter(queue_dir()).write(output_video, sidecar)
             return True
         self.video_service.process_one = mock_process_one
         

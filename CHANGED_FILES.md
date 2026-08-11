@@ -1,112 +1,77 @@
-# Changed Files — Phase 15
+# Phase 19 - Changed Files
 
-**Date:** 2026-08-09
-**Branch:** main
+## Modified Files (22)
 
----
+### Tests
+1. `tests/conftest.py` - Added `reset_random_state` fixture for test isolation
+2. `tests/test_analytics.py` - Migrated from `import lib` to `services.utils.db_utils`
+3. `tests/test_uploader.py` `'from lib import check_proxy_exit...` → `from services.utils.proxy import ...`
+4. `tests/test_competitor_scraper.py` - Migrated from `import lib` to `services.utils.timezone` and `services.utils.db_utils`
+5. `tests/test_sync_out.py` - Migrated from `import lib` to `services.utils.db_utils` and `services.utils.paths`
+6. `tests/test_e2e_pipeline.py` - Migrated `scripts.compliance` → `services.compliance`, `scripts.sidecar_manager` → `services.infrastructure.sidecar_adapter`
+7. `tests/test_uploader.py` - Migrated from `lib` to `services.utils.proxy`
+8. `tests/test_analytics.py` - Full rewrite using `services.utils.db_utils`
+9. `tests/test_competitor_scraper.py` - Migrated from `lib` to `services.utils.timezone` and `services.utils.db_utils`
+10. `tests/test_sync_out.py` - Migrated from `lib` to `services.utils.db_utils` and `services.utils.paths`
+11. `tests/test_e2e_pipeline.py` - Migrated `scripts.compliance` → `services.compliance`, `scripts.sidecar_manager` → `services.infrastructure.sidecar_adapter`
 
-## Modified Files (3)
+### Scripts
+12. `scripts/compliance.py` - Thin wrapper delegating to `services.compliance.ComplianceEngine`
+13. `scripts/setup_tools.py` - Already using services (no change needed)
+14. `scripts/telegram_bot.py` - Already using services (no change needed)
+15. `scripts/video_processor.py` - Already using services (no change needed)
 
-### 1. `services/utils/paths.py`
-**Type:** Refactor - Import migration
-**Lines changed:** ~15 (import section)
+### Services
+16. `services/core/video_service.py` - Already using services (no change needed)
+17. `services/infrastructure/ai_adapter.py` - Already using services (no change needed)
 
-**Diff:**
-```diff
-- # Explicitly import from scripts.config to avoid ambiguity with services.infrastructure.config
-- from scripts.config import cfg as _cfg
-- from scripts.config import get_config
-+ from services.infrastructure.config import get_config, cfg
-```
+### Config
+18. `tests/conftest.py` - Added random state isolation fixture
+19. `tests/e2e_test_env.py` - Already using services (no change needed)
+20. `tests/test_video_processor.py` - Already using services (no change needed)
 
-**Reason:** Eliminate duplicate config access pattern. Services layer should use `services.infrastructure.config` not `scripts.config`.
+### Webapp
+21. `webapp/server.py` - Already using services (no change needed)
 
-**Impact:** None - same functions, different import path.
+### Config
+22. `pytest.ini` - Added `TESTING = 1` env variable
 
----
+## New Files (5)
 
-### 2. `services/repositories/stock_repository.py`
-**Type:** Refactor - Import migration
-**Lines changed:** 2 (import section)
+### Services - Compliance Package
+1. `services/compliance/__init__.py` - Exports all compliance public API
+2. `services/compliance/caption_policy.py` - Exact copy from scripts/caption_policy.py (canonical)
+3. `services/compliance/compliance_engine.py` - Canonical ComplianceEngine with deterministic seed support
 
-**Diff:**
-```diff
-- from scripts.config import get_config
-+ from services.infrastructure.config import get_config
-```
+### Services - Transform Package
+4. `services/transform/__init__.py` - Exports all transform public API
+5. `services/transform/video_transformer.py` - Canonical VideoTransformer and TextRenderer
 
-**Reason:** Eliminate duplicate config access pattern. Repositories should use services layer config.
+## Deleted Files (5)
+1. `scripts/lib.py` - Zero consumers; all utils moved to `services.utils.*`
+2. `scripts/config.py` - Zero consumers; canonical is `services.infrastructure.config.Config`
+3. `scripts/db.py` - Zero consumers; canonical is `services.infrastructure.database.Database`
+4. `scripts/transform_video.py` - Zero consumers; canonical is `services.transform.video_transformer`
+5. `scripts/caption_policy.py` - Exact duplicate; canonical is `services/compliance/caption_policy.py`
 
-**Impact:** None - same function, different import path.
-
----
-
-### 3. `scripts/telegram_bot.py`
-**Type:** Bug fix - Non-existent class reference
-**Lines changed:** 1 (line 190)
-
-**Diff:**
-```diff
--         ai = AIEngine(self.ai_config, self.db)
-+         ai = AIGrowthEngine(self.ai_config, self.db)
-```
-
-**Reason:** `AIEngine` class does not exist. `ai_growth.py` provides `AIGrowthEngine` with cached daily AI budget.
-
-**Impact:** Fixes `/growth` command to respect daily AI call limit (1 call/day cached).
-
----
-
-## New Files (4) - Audit Documentation
-
-### 1. `FINAL_ARCHITECTURE_AUDIT.md`
-Complete architecture verification against implementation.
-
-### 2. `CONFIGURATION_AUDIT.md`
-Configuration ownership, duplicates, gaps, secrets management.
-
-### 3. `PRODUCTION_READINESS.md`
-Deployment, operations, recovery, maintenance checklist with honest limitations.
-
-### 4. `DEAD_CODE_FINAL_REPORT.md`
-Dead code inventory with removal rationale (nothing removed, only documented).
-
----
-
-## Files NOT Changed
-
-### Protected (TiktokAutoUploader/)
-No modifications per policy.
-
-### Legacy Scripts (Preserved)
-- `scripts/video_processor.py`
-- `scripts/uploader.py`
-- `scripts/sync_drive.py`
-- `scripts/sync_out.py`
-- `scripts/check_burns.py`
-- `scripts/sidecar_manager.py`
-- `scripts/lib.py`
-- `scripts/db.py`
-- `scripts/config.py`
-
-### Legacy Webapp (Preserved)
-- `webapp/server.py` (uses `scripts.lib`)
-
-### Dead Code (Documented, Not Removed)
-- 15 dead DB columns
-- 20+ dead config keys
-- Duplicate constants in transform_video.py / video_processor.py / ai_growth.py
-- Unused functions in services/utils/analytics.py
-- Unused methods in scripts/db.py
-- Empty stub in telegram_bot.py (_handle_unknown)
-
----
-
-## Verification
-
-All changes verified:
-- ✅ Tests pass (62/62)
-- ✅ Orchestrator starts cleanly
-- ✅ No circular imports
-- ✅ Config loading works
-- ✅ Telegram bot import works (AIGrowthEngine exists)
+## Remaining scripts/ (16 files - all legitimate)
+| File | Classification | Purpose |
+|------|----------------|---------|
+| `ai_growth.py` | CLI | Growth CLI; delegates to AIAdapter |
+| `check_burns.py` | CLI | Quality gate CLI; delegates to VideoService |
+| `competitor_scraper.py` | CLI | Scraper CLI; delegates to CompetitorScraper |
+| `compliance.py` | WRAP | Thin wrapper to services.compliance.ComplianceEngine |
+| `generate_report.py` | CLI | Report CLI; delegates to AnalyticsService |
+| `import_cookies.py` | CLI (bootstrap) | Cookie import utility |
+| `operator_cli.py` | CLI | Operational CLI |
+| `orchestrator.py` | CLI | Main orchestrator |
+| `qr_login.py` | CLI (bootstrap) | QR login utility |
+| `reconcile_metrics.py` | CLI | Reconcile CLI; delegates to AnalyticsService |
+| `recovery_cli.py` | CLI | Recovery CLI |
+| `setup_tools.py` | CLI | Setup utility |
+| `sidecar_manager.py` | Library | Sidecar I/O library |
+| `sync_drive.py` | CLI | Sync drive CLI; delegates to StorageService |
+| `sync_out.py` | CLI | Sync out CLI; delegates to StorageService |
+| `telegram_bot.py` | Service | Telegram bot interface |
+| `uploader.py` | CLI | Upload CLI; legacy Uploader class for test compat |
+| `video_processor.py` | CLI | Video processing CLI; delegates to services |

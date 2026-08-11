@@ -1,11 +1,9 @@
-"""
-Competitor scraper tests: actor choice, Apify call wiring, and the analytics
-schema mapping that reconcile/ai_growth depend on. Apify HTTP is mocked.
-"""
+"""Competitor scraper tests: actor choice, Apify call wiring, and the analytics
+schema mapping that reconcile/ai_growth depend on. Apify HTTP is mocked."""
 import datetime
 
 from services.infrastructure.database import Database
-import lib
+from services.utils.timezone import OWN_HANDLE, RIVAL_HANDLE
 from competitor_scraper import CompetitorScraper, DEFAULT_ACTOR
 
 
@@ -42,8 +40,8 @@ def test_default_actor_is_clockworks_tiktok_scraper():
 
 def test_scraper_defaults_own_and_rival_handles():
     s = CompetitorScraper({"token": "tok"}, _fake_db())
-    assert lib.OWN_HANDLE in s.competitors
-    assert lib.RIVAL_HANDLE in s.competitors
+    assert OWN_HANDLE in s.competitors
+    assert RIVAL_HANDLE in s.competitors
 
 
 def test_analytics_store_writes_competitor_tables():
@@ -51,7 +49,8 @@ def test_analytics_store_writes_competitor_tables():
     videos = [_sample_item("1111"), _sample_item("2222", handle="kumpul.shop")]
     s._store("reski.reski700", videos)
 
-    conn = lib.get_conn()
+    from services.utils.db_utils import get_conn
+    conn = get_conn()
     daily = conn.execute("SELECT * FROM competitor_daily WHERE handle=?",
                          ("reski.reski700",)).fetchall()
     assert len(daily) == 1
@@ -88,7 +87,8 @@ def test_scrape_all_writes_through_mocked_apify(monkeypatch):
     assert summary.get("reski.reski700", {}).get("posts_scraped") == 1
     assert db.saved and db.saved[0]["view_count"] == 15000
 
-    conn = lib.get_conn()
+    from services.utils.db_utils import get_conn
+    conn = get_conn()
     n = conn.execute("SELECT COUNT(*) c FROM competitor_videos "
                      "WHERE video_id='3333'").fetchone()["c"]
     conn.close()

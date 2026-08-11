@@ -1,10 +1,9 @@
-"""
-pytest fixtures. Points the machine at a throwaway temp HOME + config so the
-test suite never touches real content/, logs/ or config.yaml.
-"""
+"""pytest fixtures. Points the machine at a throwaway temp HOME + config so the
+test suite never touches real content/, logs/ or config.yaml."""
 import os
 import sys
 import tempfile
+import random
 from pathlib import Path
 
 import pytest
@@ -34,6 +33,15 @@ CONFIG_PATH.write_text(
     "ai:\n  base_url: \"https://test\"\n  api_key: \"test_key\"\n",
     encoding="utf-8")
 os.environ["TIKTOK_MACHINE_CONFIG"] = str(CONFIG_PATH)
+
+
+@pytest.fixture(autouse=True)
+def reset_random_state():
+    """Reset random state before each test to ensure isolation."""
+    # Save and restore random state to prevent test pollution
+    state = random.getstate()
+    yield
+    random.setstate(state)
 
 
 @pytest.fixture

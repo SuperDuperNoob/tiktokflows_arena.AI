@@ -1,14 +1,10 @@
-"""
-Web analytics endpoint tests: verifies the chart-data queries return the right
-shape from the analytics schema (views over time, per product).
-"""
-import lib
-import conftest
+"""Web analytics endpoint tests: verifies the chart-data queries return the right shape from the analytics schema (views over time, per product)."""
+from services.utils.db_utils import get_conn, ensure_schema
 
 
 def _seed():
-    conn = lib.get_conn()
-    lib.ensure_schema(conn)
+    conn = get_conn()
+    ensure_schema(conn)
     # Two own videos, three daily snapshots with cumulative views.
     conn.execute(
         "INSERT INTO videos(video_id, product_folder, caption, posted_at) "
@@ -34,7 +30,7 @@ def _seed():
 
 def test_views_by_day_series():
     _seed()
-    conn = lib.get_conn()
+    conn = get_conn()
     since = "2026-07-27"
     rows = [dict(r) for r in conn.execute(
         """SELECT snap_date, SUM(views) AS views FROM daily_metrics
@@ -49,7 +45,7 @@ def test_views_by_day_series():
 
 def test_net_new_views_delta():
     _seed()
-    conn = lib.get_conn()
+    conn = get_conn()
     since = "2026-07-27"
     rows = [dict(r) for r in conn.execute(
         """SELECT snap_date, SUM(views) AS views FROM daily_metrics
@@ -66,7 +62,7 @@ def test_net_new_views_delta():
 
 def test_product_views_latest_snapshot():
     _seed()
-    conn = lib.get_conn()
+    conn = get_conn()
     since = "2026-07-27"
     rows = [dict(r) for r in conn.execute(
         """WITH latest AS (
@@ -87,7 +83,7 @@ def test_product_views_latest_snapshot():
 
 def test_posts_by_day():
     _seed()
-    conn = lib.get_conn()
+    conn = get_conn()
     since = "2026-07-27"
     rows = [dict(r) for r in conn.execute(
         """SELECT substr(posted_at,1,10) AS day, COUNT(*) AS n

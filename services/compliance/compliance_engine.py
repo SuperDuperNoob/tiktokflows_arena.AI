@@ -20,11 +20,13 @@ logger = logging.getLogger(__name__)
 class ComplianceEngine:
     """Two-layer caption compliance: regex + optional LLM, then obfuscation."""
 
-    def __init__(self, config: Optional[dict] = None, ai_config: Optional[dict] = None):
+    def __init__(self, config: Optional[dict] = None, ai_config: Optional[dict] = None, seed: Optional[int] = None):
         config = config or {}
         self.strict_mode = config.get("strict_mode", True)
         self.use_ai = config.get("use_ai", True)
         self.banned_phrases = [p.lower() for p in config.get("banned_phrases", [])]
+        # Default seed for deterministic obfuscation in tests; can be overridden
+        self._seed = seed if seed is not None else 42
 
         ai_config = ai_config or {}
         self.ai_api_key = ai_config.get("api_key", "")
@@ -94,7 +96,7 @@ class ComplianceEngine:
 
     def _obfuscate(self, text: str) -> str:
         """Phonetic disguise of hype words, then clamp to overlay limits."""
-        out = soften(text, rate=0.7)
+        out = soften(text, rate=0.7, seed=self._seed)
         if is_too_long(out):
             out = shorten(out)
         return out

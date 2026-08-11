@@ -1,18 +1,18 @@
-"""
-Sync-out / anti-duplicate tests (DB-ledger design).
+"""Sync-out / anti-duplicate tests (DB-ledger design).
 
 "Already posted" is recorded in SQLite (raw_stock.posted_at). sync_out reads
 the DB and deletes the Drive copy as COSMETIC cleanup. A failed delete is safe
 — the raw is still excluded from selection, so it can never be re-uploaded.
 rclone is mocked.
 """
-import lib
+from services.utils.db_utils import mark_raw_consumed, consumed_pending_cleanup
+from services.utils.paths import db_path, processed_dir
 from sync_drive import DriveSyncer
 from sync_out import SyncOut
 
 
 def _consume(product, filename, file_hash="abc123"):
-    lib.mark_raw_consumed(product, filename, file_hash=file_hash)
+    mark_raw_consumed(product, filename, file_hash=file_hash)
 
 
 def test_delete_remote_deletes_consumed_and_marks_cleaned(monkeypatch):
@@ -36,7 +36,7 @@ def test_delete_remote_deletes_consumed_and_marks_cleaned(monkeypatch):
     }
 
     # Both marked cleaned -> no longer pending.
-    assert lib.consumed_pending_cleanup() == []
+    assert consumed_pending_cleanup() == []
 
 
 def test_failed_delete_keeps_pending_and_does_not_duplicate(monkeypatch):
@@ -51,9 +51,9 @@ def test_failed_delete_keeps_pending_and_does_not_duplicate(monkeypatch):
     assert s._delete_remote() == 0
     # Still pending -> retried next run. But it is consumed, so the selector
     # (get_unused_raw_videos) will NOT return it -> no duplicate upload.
-    assert len(lib.consumed_pending_cleanup()) == 1
+    assert len(consumed_pending_cleanup()) == 1
     from services.infrastructure.database import Database
-    db = Database(str(lib.db_path()))
+    db = Database(str(db_path()))
     unused = db.get_unused_raw_videos("Biocho")
     assert all(u["filename"] != "foo.mp4" for u in unused)
 
@@ -69,9 +69,9 @@ def test_nothing_pending_does_nothing(monkeypatch):
 
 def test_consumed_raw_excluded_from_stock_counts():
     from services.infrastructure.database import Database
-    db = Database(str(lib.db_path()))
+    db = Database(str(db_path()))
     db.sync_raw_stock("Biocho", ["a.mp4", "b.mp4"])
-    lib.mark_raw_consumed("Biocho", "a.mp4", "h")
+    mark_raw_consumed("Biocho", "a.mp4", "h")
     counts = db.get_raw_stock_counts()
     # Only the not-yet-consumed file counts.
     assert counts.get("Biocho") == 1
@@ -90,9 +90,9 @@ def test_sync_in_and_sync_out_resolve_same_remote():
 
 def test_sync_runs_all_steps(monkeypatch):
     _consume("Biocho", "foo.mp4")
-    lib.processed_dir().mkdir(parents=True, exist_ok=True)
-    (lib.processed_dir() / "Biocho").mkdir(parents=True, exist_ok=True)
-    (lib.processed_dir() / "Biocho" / "foo.mp4").write_bytes(b"x" * 100)
+    processed_dir().mkdir(parents=True, exist_ok=True)
+    (processed_dir() / "Biocho").mkdir(parents=True, exist_ok=True)
+    (processed_dir() / "Biocho" / "foo.mp4").write_bytes(b"x" * 100)
 
     monkeypatch.setattr(SyncOut, "_rclone", lambda self, args, timeout=600: (True, "ok"))
     s = SyncOut({"google_drive": {"rclone_remote": "gdrive:", "remote_path": "TC"}})
